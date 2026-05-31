@@ -49,7 +49,7 @@ rules:
     match:
       command: [git, tag]
       unless: ["--list", "-l", "-n", "--contains", "--points-at"]
-    message: "Releases and version tags go through Versionator (`just release` / `just bump`), not a hand-cut `git tag`."
+    message: "Don't hand-cut tags. Releases are merge-triggered: bump VERSION (`just set-version <v>`), open a PR, merge — CI tags it. See docs/RELEASING.md."
 
   # A plain force-push can clobber a teammate's work; --force-with-lease won't.
   - id: no-force-push
