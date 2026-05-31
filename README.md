@@ -214,8 +214,16 @@ rules:
     match: { command: [git, tag] }
     message: "Releases go through the pipeline (Versionator)."
 
+  # Mixed: positional subcommand `push` + option `--force`. The subcommand must
+  # come first; the flag matches in any position, and extra args are fine — so
+  # this catches `git push --force origin main` and `git push origin main --force`.
+  - id: no-force-push
+    match: { command: [git, push, --force] }
+    message: "Plain --force can clobber a teammate's work."
+    suggest: "git push --force-with-lease"
+
   - id: no-shell-wrapper
-    match: { command: "sh -c" }         # flags match in any order
+    match: { command: "sh -c" }         # program + option, no positional
 ```
 
 `command` is an argv pattern: a **program** (matched by name or basename),
