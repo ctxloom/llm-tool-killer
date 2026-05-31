@@ -427,6 +427,11 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 	if !r.Match.hasConstraint() {
 		return fmt.Errorf("rule %q: match has no conditions", r.ID)
 	}
+	// A rule is either a command rule or a file-edit (path) rule, not both.
+	if r.Match.isPathRule() && (len(r.Match.Command) > 0 || len(r.Match.ArgsAny) > 0 ||
+		len(r.Match.ArgsAll) > 0 || len(r.Match.Unless) > 0 || len(r.Match.Shells) > 0) {
+		return fmt.Errorf("rule %q: match.path cannot be combined with command/args/shells", r.ID)
+	}
 	if slices.Contains(r.Match.Command, "") {
 		return fmt.Errorf("rule %q: empty token in match.command", r.ID)
 	}
