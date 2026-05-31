@@ -5,6 +5,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
 )
+
+// readmePath is the README, relative to this package's directory. Its embedded
+// ```gherkin blocks are the source of truth for these acceptance tests.
+const readmePath = "../../README.md"
 
 // world is the per-scenario state: the configured tool and the last decision.
 type world struct {
@@ -96,12 +101,55 @@ func TestFeatures(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: InitializeScenario,
 		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"features"},
-			TestingT: t,
+			Format:          "pretty",
+			FeatureContents: featuresFromREADME(t),
+			TestingT:        t,
 		},
 	}
 	if suite.Run() != 0 {
-		t.Fatal("acceptance scenarios failed")
+		t.Fatal("acceptance scenarios (extracted from the README) failed")
 	}
+}
+
+// featuresFromREADME reads the README and returns each embedded ```gherkin block
+// as a godog feature, so the documented behavior is exactly what we test.
+func featuresFromREADME(t *testing.T) []godog.Feature {
+	t.Helper()
+	data, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", readmePath, err)
+	}
+	blocks := extractGherkinBlocks(string(data))
+	if len(blocks) == 0 {
+		t.Fatalf("no ```gherkin blocks found in %s", readmePath)
+	}
+	feats := make([]godog.Feature, len(blocks))
+	for i, b := range blocks {
+		feats[i] = godog.Feature{
+			Name:     fmt.Sprintf("%s (gherkin block %d)", readmePath, i+1),
+			Contents: []byte(b),
+		}
+	}
+	return feats
+}
+
+// extractGherkinBlocks returns the contents of every fenced ```gherkin block in
+// the markdown, preserving inner indentation.
+func extractGherkinBlocks(md string) []string {
+	var blocks []string
+	var cur []string
+	inBlock := false
+	for _, line := range strings.Split(md, "\n") {
+		fence := strings.TrimSpace(line)
+		switch {
+		case !inBlock && fence == "```gherkin":
+			inBlock, cur = true, nil
+		case inBlock && fence == "```":
+			blocks = append(blocks, strings.Join(cur, "\n"))
+			inBlock = false
+		case inBlock:
+			cur = append(cur, line)
+		}
+	}
+	return blocks
 }
