@@ -11,10 +11,15 @@ Each rule below is a YAML chunk followed by **why it's a default**. Every defaul
 is a *cooperative nudge* — it turns a command away and points at the safer path;
 it is not a security boundary (for hard isolation, run the agent in a container).
 
+Rules use `mode` (default `enable`, a firm denial). Workflow redirects ship as
+`mode: confirm` — you can still run the raw command by repeating it within the
+window — while the destructive-action guards stay firm (`enable`), so repeating
+them changes nothing. See [RULES.md](RULES.md#rule-mode).
+
 ## Header
 
-The document opens with the config header: fail open on unparseable input, and
-enable the "confirm by repeating" override (re-run a denied command within 30s
+The document opens with the config header: fail open on unparseable input, and a
+default window for any `mode: confirm` rule (re-run a denied command within 30s
 to proceed anyway — an escape hatch, not a control).
 
 ```yaml
@@ -33,12 +38,14 @@ rules:
 
 The canonical redirect, and the one users most often customize. Agents reach for
 `go test` directly; routing through the task runner keeps the suite, env, and
-flags identical to CI. Edit this for your stack (`make test`, `npm test`, …) or
-set `enabled: false`.
+flags identical to CI. Ships as `mode: confirm` — repeat to run raw `go test`
+anyway. Edit this for your stack (`make test`, `npm test`, …) or set
+`mode: disable`.
 
 ```yaml
   - id: tests-via-task-runner
     match: { command: [go, test] }
+    mode: confirm
     message: "Run tests through the project task runner, not the compiler directly."
     suggest: "just test"
 ```

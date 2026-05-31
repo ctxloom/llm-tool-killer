@@ -9,6 +9,11 @@ type Decision struct {
 	Command ir.SimpleCommand // the command that triggered a denial
 	Reason  string           // human-facing explanation
 	Suggest string           // suggested replacement command, if any
+	// Confirmable reports whether this denial may be lifted by repeating the
+	// command (the "confirm by repeating" override). ConfirmWindowSeconds is the
+	// window for doing so. An inviolate rule yields Confirmable=false.
+	Confirmable          bool
+	ConfirmWindowSeconds int
 }
 
 // Evaluate matches every command in the script (nested included) against the
@@ -32,12 +37,15 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 				continue
 			}
 			if r.action() == ActionDeny {
+				repeatable, window := r.confirmPolicy(cfg.Defaults)
 				decision = Decision{
-					Allowed: false,
-					Rule:    r,
-					Command: c,
-					Reason:  r.Message,
-					Suggest: r.Suggest,
+					Allowed:              false,
+					Rule:                 r,
+					Command:              c,
+					Reason:               r.Message,
+					Suggest:              r.Suggest,
+					Confirmable:          repeatable,
+					ConfirmWindowSeconds: window,
 				}
 				denied = true
 				return false // stop the walk; first deny wins

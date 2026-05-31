@@ -16,3 +16,6 @@ coverage.*
 # ctxloom ephemeral data + cached remote clones (regenerable, embedded repos)
 .ctxloom/ephemeral/
 .ctxloom/cache/
+
+# ltk manage install settings backups
+*.ltk.bak

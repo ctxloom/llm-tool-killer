@@ -4,13 +4,16 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/spf13/afero"
 )
 
 func TestArmConfirmAndExpiry(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".ltk", "state.json")
+	fs := afero.NewMemMapFs()
+	path := filepath.Join(".ltk", "state.json")
 	now := time.Unix(1_000_000, 0)
 
-	s := Open(path)
+	s := Open(fs, path)
 	if s.Armed("go test", now) {
 		t.Fatal("nothing armed yet")
 	}
@@ -19,8 +22,8 @@ func TestArmConfirmAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Survives a process boundary (reloaded from disk).
-	s2 := Open(path)
+	// Survives a process boundary (reloaded from the same fs).
+	s2 := Open(fs, path)
 	if !s2.Armed("go test", now.Add(10*time.Second)) {
 		t.Error("should be armed within the window")
 	}
@@ -38,21 +41,22 @@ func TestArmConfirmAndExpiry(t *testing.T) {
 }
 
 func TestSavePrunesExpired(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
+	fs := afero.NewMemMapFs()
+	path := "state.json"
 	now := time.Unix(2_000_000, 0)
 
-	s := Open(path)
+	s := Open(fs, path)
 	s.Arm("old", now, 10*time.Second)
 	if err := s.Save(now.Add(20 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if Open(path).Armed("old", now.Add(20*time.Second)) {
+	if Open(fs, path).Armed("old", now.Add(20*time.Second)) {
 		t.Error("expired entry should be pruned on save")
 	}
 }
 
 func TestOpenMissingFileIsEmpty(t *testing.T) {
-	s := Open(filepath.Join(t.TempDir(), "nope.json"))
+	s := Open(afero.NewMemMapFs(), "nope.json")
 	if s.Armed("anything", time.Unix(1, 0)) {
 		t.Error("missing file must yield an empty store")
 	}

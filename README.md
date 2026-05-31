@@ -136,16 +136,51 @@ Feature: Keeping an LLM agent on the project's golden path
       Then the command is turned away
 
       Examples:
-        | command                  |
-        | bash -c 'go test'        |
-        | task=test; go $task      |
-        | CMD='go test'; eval $CMD |
+        | command             |
+        | bash -c 'go test'   |
+        | task=test; go $task |
 
-  Rule: We point the way; we do not stand guard
+  Rule: We resolve what we can; what only the runtime knows, we leave alone
 
+    # If a value can be worked out before the command runs — a variable assigned
+    # in the same command, or one already in the environment — we resolve it and
+    # match the real command. So hiding a discouraged command behind a variable
+    # and an eval does not get it through.
+    Scenario: A discouraged command we can resolve behind an eval is still turned away
+      When the agent runs "CMD='go test'; eval $CMD"
+      Then the command is turned away
+      And the agent is told "tests run through the task runner"
+
+    # If a value is only settled when the command actually runs — an undefined
+    # variable, command output, a positional like $1 — we do not guess. We
+    # deliberately leave it alone rather than block on a "scary" construct: there
+    # is nothing for us to match, so it is a no-op for ltk. This is intentional,
+    # not a gap. For hard guarantees, run the agent in a sandbox.
     Scenario: A command whose meaning is only settled when it runs is left alone
       When the agent runs "eval $RESOLVED_AT_RUNTIME"
       Then the command is allowed
+
+  Rule: A turned-away command can be confirmed by running it again
+
+    # ltk points the way; it does not stand guard. If you really mean a command
+    # it discouraged, running the exact same command again within a short window
+    # lets it through — an explicit, time-boxed escape hatch, not a security
+    # control. The window is set by defaults.repeat_window_seconds, and a rule can
+    # tune or disable it in its own confirm: block.
+    Scenario: Confirming a discouraged command by repeating it
+      When the agent runs "go test ./..." and is turned away pending confirmation
+      And the agent runs "go test ./..." a second time
+      Then the command is allowed
+
+  Rule: A rule can be made inviolate, so repeating never gets it through
+
+    # Some commands shouldn't have an "I really mean it" — a rule marked
+    # confirm: { repeat: false } is inviolate: repeating it changes nothing. (A
+    # truly determined agent has other paths; for hard guarantees use a sandbox.)
+    Scenario: An inviolate command stays turned away no matter how often it is repeated
+      Given "git reset --hard" is inviolate
+      When the agent runs "git reset --hard" twice and is turned away both times
+      Then the command is turned away
 ```
 
 Run them with `just acceptance`.
@@ -203,11 +238,11 @@ command, and retries the right way.
 ## Rules
 
 Rules live in a YAML file (`.ltk/config.yaml` by convention). The first matching `deny`
-wins; its `message`/`suggest` is returned to the model. A rule can be turned off
-in place with `enabled: false` (default true). And with
-`defaults.repeat_window_seconds` set, re-running a denied command within that
-window proceeds anyway — an explicit, time-boxed escape hatch, not a security
-control.
+wins; its `message`/`suggest` is returned to the model. Each rule has a `mode`
+(default `enable`): `enable` is a firm denial, `disable` keeps the rule but turns
+it off, and `confirm` lets the agent proceed by re-running the exact command
+within `defaults.repeat_window_seconds` (or a per-rule `window_seconds`) — an
+explicit, time-boxed escape hatch, not a security control.
 
 ```yaml
 version: 1

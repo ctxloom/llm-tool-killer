@@ -24,6 +24,11 @@ type Response struct {
 	Allow   bool
 	Reason  string
 	Suggest string
+	// Confirmable reports whether a denial may be lifted by repeating the exact
+	// command within ConfirmWindowSeconds (the "confirm by repeating" override).
+	// An inviolate rule yields Confirmable=false, so repeating never helps.
+	Confirmable          bool
+	ConfirmWindowSeconds int
 }
 
 // Message renders the reason and suggestion into a single human-facing string.

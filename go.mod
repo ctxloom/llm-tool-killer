@@ -18,7 +18,9 @@ require (
 	github.com/hashicorp/go-memdb v1.3.4 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	golang.org/x/text v0.28.0 // indirect
 )
 
 tool github.com/fzipp/gocyclo/cmd/gocyclo

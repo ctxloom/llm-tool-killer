@@ -51,6 +51,21 @@ type Defaults struct {
 	RepeatWindowSeconds int `yaml:"repeat_window_seconds"`
 }
 
+// Mode controls whether and how strongly a rule fires. It collapses the older
+// enabled/confirm pair into one axis.
+type Mode string
+
+const (
+	// ModeEnable is the default: the rule fires and the denial is firm — it
+	// cannot be lifted by repeating the command (an "inviolate" rule).
+	ModeEnable Mode = "enable"
+	// ModeConfirm fires the rule but lets the agent confirm by repeating the
+	// exact command within the window (a time-boxed escape hatch).
+	ModeConfirm Mode = "confirm"
+	// ModeDisable keeps the rule in the file but inert — it never matches.
+	ModeDisable Mode = "disable"
+)
+
 // Rule is a single match → action mapping.
 type Rule struct {
 	ID      string `yaml:"id"`
@@ -58,10 +73,16 @@ type Rule struct {
 	Action  Action `yaml:"action"` // defaults to deny
 	Message string `yaml:"message"`
 	Suggest string `yaml:"suggest"`
-	// Enabled toggles the rule. It is a pointer so an absent key means the
-	// default (enabled). Set `enabled: false` to keep a rule in the file but
-	// stop it matching; Evaluate skips disabled rules entirely.
-	Enabled *bool `yaml:"enabled"`
+	// Mode is disable | confirm | enable (default enable). It replaces the older
+	// `enabled`/`confirm` booleans:
+	//   - enable  (default): rule fires; the denial is firm (inviolate).
+	//   - confirm: rule fires; re-running the exact command within the window
+	//              confirms and lets it through.
+	//   - disable: rule never matches.
+	Mode Mode `yaml:"mode"`
+	// WindowSeconds is the confirm-by-repeating window for a `confirm` rule. 0
+	// means "use defaults.repeat_window_seconds". Ignored for other modes.
+	WindowSeconds int `yaml:"window_seconds"`
 }
 
 func (r Rule) action() Action {
@@ -71,10 +92,33 @@ func (r Rule) action() Action {
 	return r.Action
 }
 
-// isEnabled reports whether the rule participates in evaluation. Absent (nil)
-// means enabled; only an explicit `enabled: false` disables it.
+// mode returns the rule's mode, defaulting to enable.
+func (r Rule) mode() Mode {
+	if r.Mode == "" {
+		return ModeEnable
+	}
+	return r.Mode
+}
+
+// isEnabled reports whether the rule participates in evaluation. Only
+// `mode: disable` turns it off.
 func (r Rule) isEnabled() bool {
-	return r.Enabled == nil || *r.Enabled
+	return r.mode() != ModeDisable
+}
+
+// confirmPolicy resolves whether a denial by this rule may be lifted by
+// repeating the command, and the window for doing so, given the global defaults.
+// Only a `confirm` rule is repeatable, and only when a positive window applies
+// (per-rule window overriding the global default). `enable` rules are inviolate.
+func (r Rule) confirmPolicy(d Defaults) (repeatable bool, windowSeconds int) {
+	if r.mode() != ModeConfirm {
+		return false, 0
+	}
+	windowSeconds = d.RepeatWindowSeconds
+	if r.WindowSeconds > 0 {
+		windowSeconds = r.WindowSeconds
+	}
+	return windowSeconds > 0, windowSeconds
 }
 
 // CommandPattern is an argv prefix to match. In YAML it may be written as a
@@ -338,6 +382,9 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 	if err := validAction(r.action()); err != nil {
 		return fmt.Errorf("rule %q: %w", r.ID, err)
 	}
+	if err := validMode(r.mode()); err != nil {
+		return fmt.Errorf("rule %q: %w", r.ID, err)
+	}
 	if !r.Match.hasConstraint() {
 		return fmt.Errorf("rule %q: match has no conditions", r.ID)
 	}
@@ -358,5 +405,14 @@ func validAction(a Action) error {
 		return nil
 	default:
 		return fmt.Errorf("invalid action %q (want allow or deny)", a)
+	}
+}
+
+func validMode(m Mode) error {
+	switch m {
+	case ModeEnable, ModeConfirm, ModeDisable:
+		return nil
+	default:
+		return fmt.Errorf("invalid mode %q (want enable, confirm, or disable)", m)
 	}
 }

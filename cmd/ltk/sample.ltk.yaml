@@ -11,6 +11,7 @@ defaults:
 rules:
   - id: tests-via-task-runner
     match: { command: [go, test] }
+    mode: confirm
     message: "Run tests through the project task runner, not the compiler directly."
     suggest: "just test"
   - id: no-reset-hard

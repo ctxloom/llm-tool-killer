@@ -90,5 +90,11 @@ func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
 	a.Registry.ExpandWrappers(ctx, script)
 
 	d := rules.Evaluate(a.Config, script)
-	return engine.Response{Allow: d.Allowed, Reason: d.Reason, Suggest: d.Suggest}
+	return engine.Response{
+		Allow:                d.Allowed,
+		Reason:               d.Reason,
+		Suggest:              d.Suggest,
+		Confirmable:          d.Confirmable,
+		ConfirmWindowSeconds: d.ConfirmWindowSeconds,
+	}
 }

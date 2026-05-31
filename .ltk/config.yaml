@@ -6,40 +6,44 @@
 # the first matching `deny` wins and its message/suggest is returned to the
 # agent so it retries the project's way. See docs/RULES.md for the full model.
 #
-# Override state for "confirm by repeating" lives next to this file in
-# .ltk/state.json (gitignored).
+# Rule mode (default enable): enable = firm denial; confirm = re-run the exact
+# command within the window to proceed; disable = inert. Override state for
+# confirm lives next to this file in .ltk/state.json (gitignored).
 version: 1
 
 defaults:
   on_parse_error: allow      # command unparseable → allow (fail-open), the cooperative default
-  repeat_window_seconds: 30  # re-run a denied command within 30s to proceed anyway (escape hatch)
+  repeat_window_seconds: 30  # window for `mode: confirm` rules
 
 rules:
-  # Tests, build, and vet go through the task runner so flags/env stay consistent
-  # (and `just check` is the one command CI runs).
+  # Workflow redirects: mode: confirm so you can still run the raw command in a
+  # pinch by repeating it. Tests/build/vet go through the task runner so flags
+  # and env stay consistent (and `just check` is the one command CI runs).
   - id: tests-via-just
     match: { command: [go, test] }
+    mode: confirm
     message: "Run tests through the task runner so the whole suite (incl. the README-driven acceptance tests) runs the same way CI does."
     suggest: "just test"
 
   - id: build-via-just
     match: { command: [go, build] }
+    mode: confirm
     message: "Use the task runner so the version is stamped and the static (CGO-free) binary lands in ./bin/ltk."
     suggest: "just build      # or: just build-static"
 
   - id: vet-via-just
     match: { command: [go, vet] }
+    mode: confirm
     message: "Vet through the task runner."
     suggest: "just vet        # or: just check (fmt-check + vet + complexity + test)"
 
-  # Linting: the installed golangci-lint (v1.64.8, built with go1.24) refuses to
-  # analyze this go1.25 module. The complexity gate runs via gocyclo instead.
   - id: golangci-lint-incompatible
     match: { command: golangci-lint }
+    mode: confirm
     message: "golangci-lint v1.64.8 is built with go1.24 and refuses this go1.25 module. Use the gocyclo-based gate."
     suggest: "just complexity # or: just check"
 
-  # Releases and version tags go through Versionator, never a hand-cut tag.
+  # Releases go through Versionator, never a hand-cut tag. Firm (default enable).
   - id: no-manual-git-tag
     match: { command: [git, tag] }
     message: "Releases and version tags go through Versionator (`just release` / `just bump`), not a hand-cut `git tag`."
@@ -50,12 +54,10 @@ rules:
     message: "A plain force-push can overwrite a teammate's commits."
     suggest: "git push --force-with-lease"
 
-  # --- Cooperative nudges drawn from common LLM-agent footguns -------------
-  # These TURN THE COMMAND AWAY (ltk has no warn-and-allow) but the message
-  # points at the safer form, which is almost always what you actually want.
+  # --- Footgun guards (firm: mode enable). Repeating does not get them through;
+  # the message points at the safer path. ---
 
-  # Gaming the gate. Agents reflexively reach for --no-verify to get past a
-  # failing pre-commit/pre-push hook instead of fixing what the hook caught.
+  # Gaming the gate with --no-verify.
   - id: no-skip-commit-hooks
     match: { command: [git, commit, --no-verify] }
     message: "Don't bypass commit hooks with --no-verify — fix what the hook flags (run `just check`), then commit."
@@ -63,7 +65,7 @@ rules:
     match: { command: [git, push, --no-verify] }
     message: "Don't bypass push hooks with --no-verify — fix the failure, then push."
 
-  # Losing uncommitted work. The single most-reported agent disaster.
+  # Losing uncommitted work.
   - id: reset-hard-stash-first
     match: { command: [git, reset, --hard] }
     message: "`git reset --hard` throws away uncommitted work irreversibly. Stash or commit first."
@@ -73,30 +75,27 @@ rules:
     message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash instead."
     suggest: "git stash --include-untracked"
 
-  # Over-broad staging. `git add -A`/`.` sweeps in files the task never touched
-  # (and can stage deletions). Stage the in-scope paths explicitly.
+  # Over-broad staging.
   - id: stage-explicitly
     match: { command: [git, add], args_any: ["-A", "--all", "."] }
     message: "Stage the files this change actually touches, not the whole tree."
     suggest: "git add <path> [<path> …]"
 
-  # Rewriting commit identity. The agent should commit as you, configured once
-  # outside the session — not rewrite user.name/user.email per command.
+  # Rewriting commit identity.
   - id: no-rewrite-git-identity
     match: { command: [git, config], args_any: ["user.email", "user.name"] }
     message: "Don't change the git identity from inside the agent; set it once in your own global config."
 
-  # Irreversible deletes. Legit sometimes (build dirs) — but path typos here are
-  # catastrophic. For this repo's artifacts use the task runner.
+  # Irreversible recursive delete (bundled -rf/-fr split to {-r,-f}).
   - id: rm-rf-careful
-    match: { command: rm, args_all: ["-r", "-f"] }   # bundled -rf/-fr split to {-r,-f}
+    match: { command: rm, args_all: ["-r", "-f"] }
     message: "Double-check the path before a recursive force-delete. For build artifacts use `just clean`; otherwise delete specific paths."
     suggest: "just clean"
 
   # Privilege escalation has no place in an unattended agent loop.
   - id: no-sudo
     match: { command: sudo }
-    message: "Don't escalate privileges from inside the agent — ask a human to run anything that needs sudo."
+    message: "Don't escalate privileges from inside the agent — ask a human to run anything that genuinely needs sudo."
 
   # Killing processes by name is a blunt instrument (wrong PID, your editor, a
   # sibling agent). Target a specific PID or the dev task you started.
@@ -107,8 +106,7 @@ rules:
     match: { command: killall }
     message: "Avoid pkill/killall by name — find the specific PID and `kill` that, or stop the task you started."
 
-  # Whole-tree reformat produces enormous, review-hostile diffs. Use the recipe,
-  # which formats consistently (and only what's ours).
+  # Whole-tree reformat produces enormous, review-hostile diffs.
   - id: gofmt-via-just
     match: { command: gofmt, args_any: ["-w"] }
     message: "Don't reformat the whole tree by hand."

@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/benjaminabbitt/llm-tool-killer/internal/app"
@@ -69,9 +69,12 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	a.HostShell = shellenv.FromEnv(os.Getenv("SHELL"))
 	resp := a.Decide(context.Background(), req)
 
-	if !resp.Allow && cfg.Defaults.RepeatWindowSeconds > 0 {
+	// A denial may be lifted by "confirm by repeating" only when the rule that
+	// fired allows it (inviolate rules report Confirmable=false and never reach
+	// here, so repeating them never helps).
+	if !resp.Allow && resp.Confirmable && resp.ConfirmWindowSeconds > 0 {
 		resp = confirmByRepeat(resp, req.Command, statePath(resolved),
-			time.Duration(cfg.Defaults.RepeatWindowSeconds)*time.Second)
+			time.Duration(resp.ConfirmWindowSeconds)*time.Second)
 	}
 
 	out, err := adapter.Encode(resp)
@@ -88,25 +91,15 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	return nil
 }
 
-// confirmByRepeat implements the "run it again to permit" override: a denied
-// command is remembered for window, and the next identical command within that
-// window is allowed instead. State persists in stateFile across hook calls.
-// It is an escape hatch, not a control (see internal/state).
+// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
+// using the wall clock, and notes on stderr when a repeat was honored. The logic
+// lives in internal/state so the acceptance suite can exercise it too.
 func confirmByRepeat(resp engine.Response, command, stateFile string, window time.Duration) engine.Response {
-	now := time.Now()
-	key := strings.TrimSpace(command)
-	st := state.Open(stateFile)
-	if st.Armed(key, now) {
-		st.Clear(key)
-		_ = st.Save(now)
+	out, overridden := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), window)
+	if overridden {
 		fmt.Fprintln(os.Stderr, "ltk: command repeated within the override window — allowing.")
-		return engine.Response{Allow: true}
 	}
-	st.Arm(key, now, window)
-	_ = st.Save(now)
-	resp.Reason = strings.TrimRight(resp.Reason, "\n") +
-		fmt.Sprintf("\n\nIf you really mean it, run the exact same command again within %ds to proceed.", int(window.Seconds()))
-	return resp
+	return out
 }
 
 // statePath puts the override state next to the resolved config (e.g. in .ltk/),
