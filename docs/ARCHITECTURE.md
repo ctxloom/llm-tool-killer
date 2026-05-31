@@ -5,32 +5,15 @@ agent. It reads the proposed shell command on stdin, decides whether to allow or
 deny it, and—on a denial—hands the model a reason and a suggested alternative so
 it can retry the right way (e.g. "don't run `go test`, use `just test`").
 
-```
-            hook payload (stdin, JSON)
-                      │
-            ┌─────────▼──────────┐
-            │ engine.Adapter     │  Decode → engine.Request {tool, command, shell-hint}
-            │ (per hook engine)  │
-            └─────────┬──────────┘
-                      │
-            ┌─────────▼──────────┐
-            │ app.resolveShell   │  force > hint > config.shell > $SHELL > bash
-            └─────────┬──────────┘
-                      │  (shell)
-            ┌─────────▼──────────┐
-            │ frontend.Registry  │  dispatch by shell → Frontend.Parse
-            │  shell | pwsh | cmd│  lower to one IR
-            └─────────┬──────────┘
-                      │  ir.Script (command graph)
-            ┌─────────▼──────────┐
-            │ rules.Evaluate     │  walk every command; first deny wins
-            └─────────┬──────────┘
-                      │  rules.Decision
-            ┌─────────▼──────────┐
-            │ engine.Adapter     │  Encode → engine.Output {stdout, stderr, exit}
-            └─────────┬──────────┘
-                      ▼
-            engine-specific decision (stdout/stderr + exit code)
+```mermaid
+flowchart TD
+    in(["hook payload — stdin (JSON)"]) --> decode["engine.Adapter.Decode<br/>(per hook engine)"]
+    decode -->|"engine.Request<br/>{tool, command, shell-hint}"| resolve["app.resolveShell<br/>force › hint › config.shell › $SHELL › bash"]
+    resolve -->|shell| parse["frontend.Registry.Parse<br/>dispatch shell / pwsh / cmd → one IR<br/>(resolves known variables)"]
+    parse -->|"ir.Script (command graph)"| wrap["Registry.ExpandWrappers<br/>re-parse bash -c / eval / cmd /c inner command"]
+    wrap --> eval["rules.Evaluate<br/>walk every command; first deny wins"]
+    eval -->|"rules.Decision"| encode["engine.Adapter.Encode"]
+    encode -->|"engine.Output<br/>{stdout, stderr, exit}"| out(["engine-specific decision<br/>(stdout/stderr + exit code)"])
 ```
 
 Two interfaces carry all the variation:
