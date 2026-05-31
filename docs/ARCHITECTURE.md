@@ -74,8 +74,8 @@ matching:
 **Only Claude Code is implemented today.** Codex and Gemini are **planned, not
 built** — the design accommodates them (see below), but no adapter exists yet.
 If you want them, vote 👍 on the tracking issues:
-[Gemini #1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1),
-[Codex #2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2).
+[Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1),
+[Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2).
 
 All target engines expose a deny-capable pre-execution hook that runs an
 external program reading JSON on stdin and returning a decision. The differences
@@ -84,8 +84,8 @@ each `engine.Adapter` absorbs:
 | Engine | Hook event | Shell signal | Deny mechanism | Status |
 |---|---|---|---|---|
 | **Claude Code** | `PreToolUse` | `tool_name`: `Bash` → user's `$SHELL`; `PowerShell` → pwsh | JSON `permissionDecision: deny` on **stdout**, exit **0** | **✅ implemented** |
-| **Codex CLI** | `PreToolUse` (`~/.codex/hooks.json`) | always `bash` (runs `bash -lc`) | JSON deny on **stdout**; "any deny wins" | 🗳️ planned — [vote #2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2) |
-| **Gemini CLI** | `BeforeTool` (settings.json `hooks` + matcher) | `run_shell_command`: `bash` on Unix; `cmd`/`pwsh` on Windows | reason on **stderr**, exit **2** (or JSON) | 🗳️ planned — [vote #1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1) |
+| **Codex CLI** | `PreToolUse` (`~/.codex/hooks.json`) | always `bash` (runs `bash -lc`) | JSON deny on **stdout**; "any deny wins" | 🗳️ planned — [vote #2](https://github.com/ctxloom/llm-tool-killer/issues/2) |
+| **Gemini CLI** | `BeforeTool` (settings.json `hooks` + matcher) | `run_shell_command`: `bash` on Unix; `cmd`/`pwsh` on Windows | reason on **stderr**, exit **2** (or JSON) | 🗳️ planned — [vote #1](https://github.com/ctxloom/llm-tool-killer/issues/1) |
 
 ### How Codex/Gemini will slot in (no rework needed)
 
@@ -130,8 +130,8 @@ each `engine.Adapter` absorbs:
 
 # Not yet built
 
-- **Codex** ([#2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2))
-  and **Gemini** ([#1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1))
+- **Codex** ([#2](https://github.com/ctxloom/llm-tool-killer/issues/2))
+  and **Gemini** ([#1](https://github.com/ctxloom/llm-tool-killer/issues/1))
   engines (above) — `engine.Engine` implementations registered in `engines()`;
   `manage` and `evaluate` already dispatch polymorphically, so each is purely
   additive. **Vote 👍 on the issues to prioritize.**

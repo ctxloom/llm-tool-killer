@@ -189,14 +189,14 @@ Run them with `just acceptance`.
 
 > **Claude Code is the only supported agent right now.** Codex and Gemini are
 > planned, not built — vote 👍 to prioritize:
-> [Gemini #1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1),
-> [Codex #2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2).
+> [Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1),
+> [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2).
 
 Build a static binary (no runtime dependencies):
 
 ```sh
 just build-static      # → bin/ltk
-# or: go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@latest
+# or: go install github.com/ctxloom/llm-tool-killer/cmd/ltk@latest
 ```
 
 Register the hook in your agent's config and scaffold a starter rules file.
@@ -314,7 +314,7 @@ It works. Here's the hook catching this project's own coding agent reaching for
 | | |
 |---|---|
 | **Shells** | sh, bash, zsh, mksh (in-process via mvdan/sh); PowerShell (native parser); cmd.exe (built-in lexer). Variable resolution: shell family. |
-| **Engines** | **Claude Code only** right now (`PreToolUse`). Codex and Gemini are planned, not built — vote 👍 to prioritize: [Gemini #1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1), [Codex #2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2). |
+| **Engines** | **Claude Code only** right now (`PreToolUse`). Codex and Gemini are planned, not built — vote 👍 to prioritize: [Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1), [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2). |
 
 ## Develop
 

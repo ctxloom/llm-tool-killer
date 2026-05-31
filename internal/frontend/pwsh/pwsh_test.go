@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // fake builds a Frontend whose runner returns canned parser JSON.

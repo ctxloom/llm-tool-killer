@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/app"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/shellenv"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/state"
+	"github.com/ctxloom/llm-tool-killer/internal/app"
+	"github.com/ctxloom/llm-tool-killer/internal/engine"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/rules"
+	"github.com/ctxloom/llm-tool-killer/internal/shellenv"
+	"github.com/ctxloom/llm-tool-killer/internal/state"
 )
 
 // configSearch lists the default config locations, in order. The .ltk/ layout

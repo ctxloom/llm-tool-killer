@@ -12,7 +12,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
+	"github.com/ctxloom/llm-tool-killer/internal/rules"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 	// user's project on `ltk manage install`, so it must be user-facing and free
 	// of this project's own tooling (no just/lefthook/versionator references).
 	header = "# llm-tool-killer default rules — edit freely and commit alongside your project.\n" +
-		"# Rule model: https://github.com/benjaminabbitt/llm-tool-killer/blob/main/docs/RULES.md\n"
+		"# Rule model: https://github.com/ctxloom/llm-tool-killer/blob/main/docs/RULES.md\n"
 )
 
 // blockRe captures the body of each ```yaml fenced block.

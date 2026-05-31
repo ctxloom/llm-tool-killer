@@ -99,5 +99,5 @@ release:
   footer: |
     ---
     Install: `brew install ctxloom/tap/ltk` (macOS),
-    `go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@{{ .Tag }}`,
+    `go install github.com/ctxloom/llm-tool-killer/cmd/ltk@{{ .Tag }}`,
     or download a binary above and run `ltk manage install`.

@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // mode controls whether a rule fires: disable → inert, enable/confirm → fires.

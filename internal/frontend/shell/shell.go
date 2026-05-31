@@ -25,7 +25,7 @@ import (
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // Frontend lowers POSIX-family shell into IR.

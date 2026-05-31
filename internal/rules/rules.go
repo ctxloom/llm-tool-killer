@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // Action is the outcome a rule (or default policy) selects.

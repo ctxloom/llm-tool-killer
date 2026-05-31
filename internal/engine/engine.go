@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // Request is the engine-neutral view of a tool invocation to be checked.

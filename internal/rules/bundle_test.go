@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // A rule written with separate short flags must match a bundled invocation

@@ -1,5 +1,5 @@
 # llm-tool-killer rules — add your own.
-# Rule model: https://github.com/benjaminabbitt/llm-tool-killer/blob/main/docs/RULES.md
+# Rule model: https://github.com/ctxloom/llm-tool-killer/blob/main/docs/RULES.md
 version: 1
 
 defaults:

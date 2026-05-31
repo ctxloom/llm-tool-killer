@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
+	"github.com/ctxloom/llm-tool-killer/internal/engine"
+	"github.com/ctxloom/llm-tool-killer/internal/rules"
 )
 
 func newApp(t *testing.T, y string) *App {

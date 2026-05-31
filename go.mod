@@ -1,4 +1,4 @@
-module github.com/benjaminabbitt/llm-tool-killer
+module github.com/ctxloom/llm-tool-killer
 
 go 1.25.0
 

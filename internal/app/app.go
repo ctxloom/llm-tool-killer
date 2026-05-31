@@ -7,13 +7,13 @@ import (
 	"context"
 	"strings"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend/cmd"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend/pwsh"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend/shell"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
+	"github.com/ctxloom/llm-tool-killer/internal/engine"
+	"github.com/ctxloom/llm-tool-killer/internal/frontend"
+	"github.com/ctxloom/llm-tool-killer/internal/frontend/cmd"
+	"github.com/ctxloom/llm-tool-killer/internal/frontend/pwsh"
+	"github.com/ctxloom/llm-tool-killer/internal/frontend/shell"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/rules"
 )
 
 // App holds the configured rules and the frontend registry.

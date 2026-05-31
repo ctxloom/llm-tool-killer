@@ -5,8 +5,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/shellenv"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/shellenv"
 )
 
 // maxWrapDepth bounds how deep ExpandWrappers re-parses nested wrappers

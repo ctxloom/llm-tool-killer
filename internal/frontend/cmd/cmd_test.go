@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 func parse(t *testing.T, src string) *ir.Script {

@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // `unless` lets a rule carve out read-only exceptions: the rule matches only

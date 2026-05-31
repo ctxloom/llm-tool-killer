@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
+	"github.com/ctxloom/llm-tool-killer/internal/engine"
 )
 
 // confirmByRepeat implements "run it again to permit": the first denial is

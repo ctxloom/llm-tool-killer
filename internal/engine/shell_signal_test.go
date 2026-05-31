@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 func TestClaudeCodeDecodeResolvesShell(t *testing.T) {

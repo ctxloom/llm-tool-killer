@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // parseTimeout bounds a single shell-out to the PowerShell parser.

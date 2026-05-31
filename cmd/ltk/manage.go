@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
+	"github.com/ctxloom/llm-tool-killer/internal/engine"
 )
 
 func newManageCmd() *cobra.Command {

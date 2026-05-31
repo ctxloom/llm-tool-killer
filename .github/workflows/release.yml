@@ -30,6 +30,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with contents:write on benjaminabbitt/homebrew-tap, for the
+          # PAT with contents:write on ctxloom/homebrew-tap, for the
           # Homebrew formula push (cross-repo; the default token can't reach it).
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

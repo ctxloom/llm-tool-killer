@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
 // fakeFrontend parses by recording the (shell, src) it was given and returning a
