@@ -73,8 +73,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 The scenarios below are the real acceptance tests: `go test ./tests/acceptance/`
 **extracts this Gherkin from this README** and runs it against the decision
-engine via [godog](https://github.com/cucumber/godog). The documented behavior
-*is* the tested behavior.
+engine via [godog](https://github.com/cucumber/godog). *This* documented
+behavior — the scenarios in the block below — *is* the tested behavior; delete
+the block and the suite fails. (Prose and the other snippets in this README are
+not executed.)
 
 ```gherkin
 Feature: Keeping an LLM agent on the project's golden path
@@ -86,9 +88,10 @@ Feature: Keeping an LLM agent on the project's golden path
 
   Background:
     Given the project asks agents to use:
-      | instead of running | use this  | because                                        |
-      | go test            | just test | tests run through the task runner              |
-      | git tag            |           | releases go through the pipeline (Versionator) |
+      | instead of running | use this                    | because                                        |
+      | go test            | just test                   | tests run through the task runner              |
+      | git tag            |                             | releases go through the pipeline (Versionator) |
+      | git push --force   | git push --force-with-lease | a plain force-push can clobber a teammate's work |
 
   Rule: A discouraged command is turned away, with a reason
 
@@ -105,6 +108,25 @@ Feature: Keeping an LLM agent on the project's golden path
 
     Scenario: An ordinary command is left alone
       When the agent runs "ls -la && cat README.md"
+      Then the command is allowed
+
+  Rule: A rule can combine a subcommand and a flag, matched in any order
+
+    # The "git push --force" rule pairs a positional subcommand (push) with an
+    # option (--force). The subcommand must come first; the option can sit
+    # anywhere, and extra arguments are fine.
+    Scenario Outline: A force push is redirected wherever the flag sits
+      When the agent runs "<command>"
+      Then the command is turned away
+      And the agent is pointed at "git push --force-with-lease"
+
+      Examples:
+        | command                      |
+        | git push --force origin main |
+        | git push origin main --force |
+
+    Scenario: The safer form it points to is left alone
+      When the agent runs "git push --force-with-lease origin main"
       Then the command is allowed
 
   Rule: Phrasing the same command differently does not get it through
