@@ -14,7 +14,7 @@ builds:
     main: ./cmd/ltk
     binary: ltk
     env:
-      - CGO_ENABLED=0 # pure-Go static binary, no libc dependency
+      - CGO_ENABLED=0 # no libc linkage at all → static on every target
     goos:
       - linux
       - darwin
@@ -25,11 +25,18 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64 # not a release target
+    # Pure-Go resolvers (no libc) so linux/windows binaries are unambiguously
+    # static even if CGO ever gets re-enabled.
+    tags:
+      - netgo
+      - osusergo
     flags:
       - -trimpath
+    # -extldflags=-static forces static linking when an external linker is used
+    # (no-op under CGO_ENABLED=0, harmless on darwin which can't fully static-link).
     # Stamp main.Version with the tag (e.g. v1.2.3), matching `ltk --version`.
     ldflags:
-      - -s -w -X main.Version={{ .Tag }}
+      - -s -w -extldflags=-static -X main.Version={{ .Tag }}
     mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
 
 archives:
@@ -60,10 +67,37 @@ changelog:
       - Merge pull request
       - Merge branch
 
+# Homebrew formula published to the shared ctxloom tap. macOS users:
+#   brew install benjaminabbitt/tap/ltk
+brews:
+  - name: ltk
+    repository:
+      owner: benjaminabbitt
+      name: homebrew-tap
+      # Cross-repo push needs a PAT with `contents:write` on homebrew-tap; the
+      # default GITHUB_TOKEN only covers this repo. Provided as the
+      # HOMEBREW_TAP_GITHUB_TOKEN secret (wired in .github/workflows/release.yml).
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/benjaminabbitt/llm-tool-killer"
+    description: "Pre-tool hook that redirects an LLM agent's shell commands to the project's preferred command"
+    license: "BSD-3-Clause"
+    # Don't push a formula for prereleases (e.g. v0.0.1-rc1) or snapshots — only
+    # real tags update the tap.
+    skip_upload: auto
+    commit_author:
+      name: goreleaser-bot
+      email: noreply@abbitt.me
+    test: |
+      system "#{bin}/ltk", "--version"
+    install: |
+      bin.install "ltk"
+
 release:
   draft: false
   prerelease: auto # tags like v1.2.3-rc1 are marked pre-release
   footer: |
     ---
-    Install: `go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@{{ .Tag }}`
+    Install: `brew install benjaminabbitt/tap/ltk` (macOS),
+    `go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@{{ .Tag }}`,
     or download a binary above and run `ltk manage install`.
