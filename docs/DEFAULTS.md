@@ -70,7 +70,7 @@ only preview, so they're exempt.
   - id: no-git-clean
     match:
       command: [git, clean]
-      args_none: ["-n", "--dry-run"]
+      unless: ["-n", "--dry-run"]
     message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash."
     suggest: "git stash --include-untracked"
 ```

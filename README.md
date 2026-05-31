@@ -260,7 +260,8 @@ rules:
     suggest: "just test"
 
   - id: no-git-tag
-    match: { command: [git, tag] }
+    # `unless` exempts the read-only listing form: `git tag --list` is fine.
+    match: { command: [git, tag], unless: ["--list", "-l"] }
     message: "Releases go through the pipeline (Versionator)."
 
   # Mixed: positional subcommand `push` + option `--force`. The subcommand must

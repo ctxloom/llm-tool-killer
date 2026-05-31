@@ -48,7 +48,7 @@ rules:
   - id: no-manual-git-tag
     match:
       command: [git, tag]
-      args_none: ["--list", "-l", "-n", "--contains", "--points-at"]
+      unless: ["--list", "-l", "-n", "--contains", "--points-at"]
     message: "Releases and version tags go through Versionator (`just release` / `just bump`), not a hand-cut `git tag`."
 
   # A plain force-push can clobber a teammate's work; --force-with-lease won't.
@@ -76,7 +76,7 @@ rules:
   - id: git-clean-stash-first
     match:
       command: [git, clean]
-      args_none: ["-n", "--dry-run"]   # previewing is safe
+      unless: ["-n", "--dry-run"]   # previewing is safe
     message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash instead."
     suggest: "git stash --include-untracked"
 

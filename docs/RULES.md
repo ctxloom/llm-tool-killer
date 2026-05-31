@@ -17,8 +17,9 @@ bodies. Quoted text is *not* a command, so `echo "go test"` does not match a
 version: 1
 
 defaults:
-  shell: bash            # fallback dialect (see Shell resolution in ARCHITECTURE.md)
-  on_parse_error: allow  # command couldn't be parsed at all → allow (fail-open) | deny
+  shell: bash               # fallback dialect (see Shell resolution in ARCHITECTURE.md)
+  on_parse_error: allow     # command couldn't be parsed at all → allow (fail-open) | deny
+  repeat_window_seconds: 30 # window for `mode: confirm` rules (see Rule mode)
 
 rules:
   - id: go-test-to-just            # required, unique
@@ -26,15 +27,11 @@ rules:
     action: deny                   # deny (default) | allow
     message: "Use `just test`."    # shown to the model on deny
     suggest: "just test"           # optional replacement command
-    enabled: true                  # default true; set false to keep but disable
+    mode: enable                   # enable (default) | confirm | disable (see Rule mode)
 ```
 
 Unknown YAML keys are rejected, so a typo (`programm:`) is an error, not a
 silent no-op.
-
-Every rule is **enabled by default**. Set `enabled: false` to keep a rule in the
-file (documented and version-controlled) while turning it off — the evaluator
-skips it entirely. An absent `enabled:` key means `true`.
 
 ## Matching commands
 
@@ -82,34 +79,49 @@ match: { command: [git, push, --force, --no-verify] } # those flags in ANY order
 
 ### Refinements
 
-Three optional, program-agnostic conditions can be ANDed with (or used without)
-`command`:
+Optional, program-agnostic conditions refine a `command` match (or stand on
+their own). `args_any` and `args_all` are **positive** filters — the listed
+tokens must be present:
 
 ```yaml
+# A docker build that publishes: `docker build` (or `buildx`) carrying both
+# --push and --tag.
 match:
   command: docker
   args_any: [build, buildx]   # at least one present anywhere in args
-  args_all: [--push, --tag]   # all present anywhere in args
-  args_none: [--dry-run]      # exception: rule is SKIPPED if any present
+  args_all: ["--push", "--tag"]   # all present anywhere in args
 ```
 
-`args_none` is how you carve out **read-only or safe exceptions** to an otherwise
-firm rule. The listed tokens are escape hatches: if the command contains any of
-them, the rule does not match. This is the right tool for the `--list` /
-`--dry-run` / `-n` forms of a command you otherwise want to block:
+**`unless`** is the **negative** one: it lists exception tokens, and if the
+command contains any of them the rule does **not** match. It reads as English —
+"match `git clean` *unless* `--dry-run` is present." This is how you carve out
+the read-only / safe form of a command you otherwise block:
+
+```yaml
+# Block destructive `git clean`, but allow the preview form.
+match:
+  command: [git, clean]
+  unless: ["-n", "--dry-run"]   # `git clean -n` only previews — fine
+```
 
 ```yaml
 # Block creating tags, but allow read-only listing.
 - id: no-git-tag
   match:
     command: [git, tag]
-    args_none: ["--list", "-l", "-n"]   # `git tag --list` is fine
+    unless: ["--list", "-l", "-n"]   # `git tag --list` is fine
   message: "Releases go through the pipeline, not a hand-cut `git tag`."
 ```
 
-All three argument refinements see bundled short options expanded (so `-n` in
-`args_none` matches `rm -rn` too), and they are checked after `command` — an
-`args_none` hit on a non-matching command is moot.
+Other genuine `unless` cases: `rsync … unless: ["-n", "--dry-run"]`,
+`make … unless: ["-n", "--dry-run"]`, `helm upgrade … unless: ["--dry-run"]`.
+(Note `--dry-run` is **not** universal — `docker build`/`run`, for instance, have
+no dry-run; only `docker compose` does. Use the flag the target command actually
+supports.)
+
+All argument conditions see bundled short options expanded (so `-n` in `unless`
+matches `rm -rn` too), and they are checked after `command` — an `unless` hit on
+a non-matching command is moot.
 
 ## Portability across shells
 
