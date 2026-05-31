@@ -259,3 +259,32 @@ denied command past a rule with a trivial wrapper or a variable:
 This is **not** a security boundary. If an LLM is told to work around a rule it
 can rewrite the tool, recompile it under another name, symlink it, etc. — see
 the README "Scope" section. For hard limits, run the agent in a sandbox.
+
+## Matching file edits (`match.path`)
+
+Most rules guard shell **commands**. A rule can instead guard **file edits** by
+the agent's own editing tools (Edit, Write, MultiEdit, NotebookEdit) using
+`match.path` — useful for files that are owned by a tool and shouldn't be
+hand-edited:
+
+```yaml
+# Block hand-editing the version file; it's owned by the release tool.
+- id: no-hand-edit-version
+  match: { path: [VERSION] }
+  message: "VERSION is managed by the release tool — use `just bump`, not a hand edit."
+```
+
+`path` patterns are globs (Go `path.Match`) checked against both the file's
+**basename** and its full slash-path, so `VERSION` catches `/proj/VERSION`,
+`*.lock` catches `a/b/c.lock`, and `dist/*` catches everything one level under
+`dist/`. Backslashes are normalized to `/` first.
+
+A rule is **either** a command rule **or** a path rule, never both: combining
+`path` with `command`/`args_*`/`shells` is a config error. Everything else
+carries over unchanged — `mode` (enable/confirm/disable), `message`, and
+`suggest` all work, and a `confirm` path rule is satisfied by re-attempting the
+same file edit within the window.
+
+> The hook must be registered for the editing tools for this to fire. `ltk
+> manage install` registers the matcher `Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit`;
+> a hook scoped to only `Bash` won't see file edits.

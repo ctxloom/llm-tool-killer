@@ -73,7 +73,13 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	// fired allows it (inviolate rules report Confirmable=false and never reach
 	// here, so repeating them never helps).
 	if !resp.Allow && resp.Confirmable && resp.ConfirmWindowSeconds > 0 {
-		resp = confirmByRepeat(resp, req.Command, statePath(resolved),
+		// The override is keyed on what the agent repeats: the command, or the
+		// file path for a file-edit rule.
+		key := req.Command
+		if req.FilePath != "" {
+			key = "edit:" + req.FilePath
+		}
+		resp = confirmByRepeat(resp, key, statePath(resolved),
 			time.Duration(resp.ConfirmWindowSeconds)*time.Second)
 	}
 

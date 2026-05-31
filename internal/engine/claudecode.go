@@ -25,7 +25,8 @@ func (ClaudeCode) Name() string { return "claude-code" }
 type ccInput struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		Command string `json:"command"`
+		Command  string `json:"command"`   // Bash/PowerShell
+		FilePath string `json:"file_path"` // Edit/Write/MultiEdit/NotebookEdit
 	} `json:"tool_input"`
 }
 
@@ -42,6 +43,7 @@ func (ClaudeCode) Decode(input []byte) (Request, error) {
 		ToolName: in.ToolName,
 		Command:  in.ToolInput.Command,
 		Shell:    ccShellForTool(in.ToolName),
+		FilePath: in.ToolInput.FilePath,
 	}, nil
 }
 
@@ -94,8 +96,9 @@ func (ClaudeCode) Encode(resp Response) (Output, error) {
 
 // --- management surface (Claude Code specific) ---
 
-// claudeMatcher is the PreToolUse matcher: the shell-bound tools.
-const claudeMatcher = "Bash|PowerShell"
+// claudeMatcher is the PreToolUse matcher: the shell-bound tools (command rules)
+// plus the file-editing tools (path rules).
+const claudeMatcher = "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
 
 // Claude Code settings.json keys, used when merging/removing the hook in the
 // untyped JSON document. Kept as named constants so the merge and remove paths

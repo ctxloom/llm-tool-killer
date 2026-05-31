@@ -67,8 +67,20 @@ func (a *App) resolveShell(hint ir.Shell) ir.Shell {
 	}
 }
 
-// Decide parses the request's command and evaluates it against the rules.
+// Decide evaluates a request against the rules: a file edit (FilePath set) is
+// matched against path rules; otherwise the command is parsed and matched
+// against command rules.
 func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
+	if req.FilePath != "" {
+		d := rules.EvaluatePath(a.Config, req.FilePath)
+		return engine.Response{
+			Allow:                d.Allowed,
+			Reason:               d.Reason,
+			Suggest:              d.Suggest,
+			Confirmable:          d.Confirmable,
+			ConfirmWindowSeconds: d.ConfirmWindowSeconds,
+		}
+	}
 	command := strings.TrimSpace(req.Command)
 	if command == "" {
 		return engine.Response{Allow: true}

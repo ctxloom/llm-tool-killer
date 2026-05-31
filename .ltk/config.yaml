@@ -120,3 +120,9 @@ rules:
     match: { command: gofmt, args_any: ["-w"] }
     message: "Don't reformat the whole tree by hand."
     suggest: "just fmt"
+
+  # File-edit rule (path, not command): the version is owned by Versionator.
+  # Editing the VERSION file by hand desyncs it from the tag/release flow.
+  - id: no-hand-edit-version
+    match: { path: [VERSION] }
+    message: "Don't hand-edit VERSION — it's managed by Versionator. Use `just bump` (or `versionator set <v>`), then `just release`."

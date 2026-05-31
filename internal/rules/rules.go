@@ -177,11 +177,42 @@ type Match struct {
 	Unless []string `yaml:"unless"`
 	// Shells restricts the rule to these shells.
 	Shells []ir.Shell `yaml:"shells"`
+	// Path makes this a FILE-EDIT rule instead of a command rule: it matches when
+	// a file-editing tool (Edit/Write/MultiEdit/NotebookEdit) targets a file whose
+	// path matches one of these glob patterns. A pattern matches the file's
+	// basename or its full slash-path (path.Match globbing). e.g. `path: [VERSION]`
+	// blocks hand-editing VERSION. A rule is either a command rule or a path rule,
+	// never both.
+	Path []string `yaml:"path"`
 }
+
+// isPathRule reports whether this match targets file edits rather than commands.
+func (m Match) isPathRule() bool { return len(m.Path) > 0 }
 
 func (m Match) hasConstraint() bool {
 	return len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
-		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0
+		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0 ||
+		len(m.Path) > 0
+}
+
+// matchesPath reports whether a file-edit of file is caught by this path rule.
+// Each pattern is matched against the file's full slash-path and its basename,
+// so `VERSION` catches `/proj/VERSION` and `*.lock` catches `a/b/x.lock`.
+func (m Match) matchesPath(file string) bool {
+	file = strings.ReplaceAll(strings.TrimSpace(file), "\\", "/")
+	base := path.Base(file)
+	for _, pat := range m.Path {
+		if pat == file {
+			return true
+		}
+		if ok, _ := path.Match(pat, base); ok {
+			return true
+		}
+		if ok, _ := path.Match(pat, file); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {

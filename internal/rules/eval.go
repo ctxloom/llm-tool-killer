@@ -1,6 +1,10 @@
 package rules
 
-import "github.com/ctxloom/llm-tool-killer/internal/ir"
+import (
+	"strings"
+
+	"github.com/ctxloom/llm-tool-killer/internal/ir"
+)
 
 // Decision is the result of evaluating a script against a config.
 type Decision struct {
@@ -31,7 +35,10 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 		for i := range cfg.Rules {
 			r := &cfg.Rules[i]
 			if !r.isEnabled() {
-				continue // `enabled: false` keeps a rule in the file but inert
+				continue // `mode: disable` keeps a rule in the file but inert
+			}
+			if r.Match.isPathRule() {
+				continue // path rules are evaluated against file edits, not commands
 			}
 			if !r.Match.matches(script.Shell, c) {
 				continue
@@ -56,6 +63,38 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 	})
 	if denied {
 		return decision
+	}
+	return Decision{Allowed: true}
+}
+
+// EvaluatePath matches a file-editing tool call (Edit/Write/…) against the
+// path rules in order; the first matching deny wins. Command rules are ignored
+// here, just as path rules are ignored by Evaluate. mode/confirm/message/suggest
+// behave exactly as for command rules.
+func EvaluatePath(cfg *Config, filePath string) Decision {
+	if strings.TrimSpace(filePath) == "" {
+		return Decision{Allowed: true}
+	}
+	for i := range cfg.Rules {
+		r := &cfg.Rules[i]
+		if !r.isEnabled() || !r.Match.isPathRule() {
+			continue
+		}
+		if !r.Match.matchesPath(filePath) {
+			continue
+		}
+		if r.action() != ActionDeny {
+			return Decision{Allowed: true} // explicit allow rule
+		}
+		repeatable, window := r.confirmPolicy(cfg.Defaults)
+		return Decision{
+			Allowed:              false,
+			Rule:                 r,
+			Reason:               r.Message,
+			Suggest:              r.Suggest,
+			Confirmable:          repeatable,
+			ConfirmWindowSeconds: window,
+		}
 	}
 	return Decision{Allowed: true}
 }

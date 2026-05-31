@@ -10,13 +10,19 @@ import (
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
-// Request is the engine-neutral view of a tool invocation to be checked.
+// Request is the engine-neutral view of a tool invocation to be checked. It is
+// either a command invocation (Command set, from Bash/PowerShell) or a file edit
+// (FilePath set, from Edit/Write/…), never both.
 type Request struct {
 	ToolName string
 	Command  string
 	// Shell is the dialect to parse with. Empty means the engine did not say;
 	// the caller fills in a default.
 	Shell ir.Shell
+	// FilePath is the target of a file-editing tool (Edit/Write/MultiEdit/…),
+	// empty for command invocations. When set, the request is evaluated against
+	// path rules instead of command rules.
+	FilePath string
 }
 
 // Response is the engine-neutral decision.
