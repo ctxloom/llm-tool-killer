@@ -26,10 +26,15 @@ rules:
     action: deny                   # deny (default) | allow
     message: "Use `just test`."    # shown to the model on deny
     suggest: "just test"           # optional replacement command
+    enabled: true                  # default true; set false to keep but disable
 ```
 
 Unknown YAML keys are rejected, so a typo (`programm:`) is an error, not a
 silent no-op.
+
+Every rule is **enabled by default**. Set `enabled: false` to keep a rule in the
+file (documented and version-controlled) while turning it off — the evaluator
+skips it entirely. An absent `enabled:` key means `true`.
 
 ## Matching commands
 
@@ -103,6 +108,16 @@ The `cmd` distinction matters: under cmd, `/c` is a switch, but under a POSIX
 shell `/usr/bin/x` is a path — so the same leading-`/` token is an option in one
 and positional in the other. Restrict a rule to specific shells with
 `match.shells: [cmd]` when needed.
+
+**Bundled short options.** Under a POSIX shell, a single-dash cluster like `-rf`
+is matched as if it also carried `-r` and `-f` separately (the getopt
+convention), so `match: { command: rm, args_all: [-r, -f] }` catches `rm -rf`,
+`rm -fr`, and `rm -r -f` alike. This is a matcher-only heuristic — the command
+itself is never rewritten. Only POSIX shells expand this way: cmd (`/switch`)
+and PowerShell (`-LongName`) don't bundle, so their tokens are never split.
+(Why this lives in ltk and not the shell parser: bundling is a per-program
+getopt convention — Go's `flag`, `find`, and `dd` don't follow it — so a shell
+parser can't know to split it.)
 
 ## Understanding (catching trivial workarounds)
 

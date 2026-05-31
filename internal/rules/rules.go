@@ -12,6 +12,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -42,6 +43,12 @@ type Defaults struct {
 	// OnParseError decides what to do when the frontend could not parse the
 	// command at all (e.g. PowerShell not installed). Default allow (fail-open).
 	OnParseError Action `yaml:"on_parse_error"`
+	// RepeatWindowSeconds enables the "confirm by repeating" override: when a
+	// command is denied, re-running the exact same command within this many
+	// seconds is allowed instead. 0 (the default) disables it. It is an escape
+	// hatch, not a control. The evaluator does not implement it (it is stateless
+	// and pure); the CLI layer reads this and tracks state on disk.
+	RepeatWindowSeconds int `yaml:"repeat_window_seconds"`
 }
 
 // Rule is a single match → action mapping.
@@ -51,6 +58,10 @@ type Rule struct {
 	Action  Action `yaml:"action"` // defaults to deny
 	Message string `yaml:"message"`
 	Suggest string `yaml:"suggest"`
+	// Enabled toggles the rule. It is a pointer so an absent key means the
+	// default (enabled). Set `enabled: false` to keep a rule in the file but
+	// stop it matching; Evaluate skips disabled rules entirely.
+	Enabled *bool `yaml:"enabled"`
 }
 
 func (r Rule) action() Action {
@@ -58,6 +69,12 @@ func (r Rule) action() Action {
 		return ActionDeny
 	}
 	return r.Action
+}
+
+// isEnabled reports whether the rule participates in evaluation. Absent (nil)
+// means enabled; only an explicit `enabled: false` disables it.
+func (r Rule) isEnabled() bool {
+	return r.Enabled == nil || *r.Enabled
 }
 
 // CommandPattern is an argv prefix to match. In YAML it may be written as a
@@ -101,9 +118,14 @@ type Match struct {
 	// `[go, test]` matches `go test …` (and `go --mod=mod test …`); `sh -c`
 	// matches `sh -c …` and `sh -e -c …`; `[git, push, --force, --no-verify]`
 	// matches those flags in any order after `push`.
+	//
+	// Bundled short options expand for matching: under a POSIX shell `-rf` is
+	// treated as also carrying `-r` and `-f`, so `[rm, -r, -f]` matches `rm -rf`,
+	// `rm -fr`, and `rm -r -f` alike. See expandShortClusters.
 	Command CommandPattern `yaml:"command"`
 	// ArgsAny / ArgsAll are program-agnostic refinements: tokens that must
-	// appear somewhere in the arguments (beyond the Command prefix).
+	// appear somewhere in the arguments (beyond the Command prefix). Bundled
+	// short options are expanded here too.
 	ArgsAny []string `yaml:"args_any"` // at least one present in args
 	ArgsAll []string `yaml:"args_all"` // all present in args
 	// Shells restricts the rule to these shells.
@@ -125,7 +147,7 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
 	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, shell) {
 		return false
 	}
-	args := c.Args()
+	args := expandShortClusters(c.Args(), shell)
 	for _, a := range m.ArgsAll {
 		if !slices.Contains(args, a) {
 			return false
@@ -145,7 +167,7 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
 //   - positional pattern tokens (non-options) must be an ordered prefix of the
 //     command's non-option arguments.
 //   - option pattern tokens (flags) must each appear somewhere in args, in any
-//     order.
+//     order (with bundled short options expanded, e.g. -rf ⇒ -r, -f).
 func matchCommand(pattern, argv []string, shell ir.Shell) bool {
 	if len(pattern) == 0 || len(argv) == 0 {
 		return false
@@ -155,8 +177,9 @@ func matchCommand(pattern, argv []string, shell ir.Shell) bool {
 	}
 	positionals, options := classifyArgs(pattern[1:], shell)
 	args := argv[1:]
+	expanded := expandShortClusters(args, shell)
 	for _, opt := range options {
-		if !slices.Contains(args, opt) {
+		if !slices.Contains(expanded, opt) {
 			return false
 		}
 	}
@@ -218,6 +241,47 @@ func isOption(tok string, shell ir.Shell) bool {
 	return strings.HasPrefix(tok, "-")
 }
 
+// expandShortClusters returns args plus the individual flags of any bundled
+// short-option cluster (POSIX getopt convention: "-rf" also carries "-r" and
+// "-f"), so a rule written with separate short flags matches a bundled
+// invocation in any order. Originals are kept; nothing is rewritten.
+//
+// This is deliberately a *matcher-level* heuristic, not an IR transform, because
+// bundling is per-program semantics the shell can't know: getopt-based tools
+// (GNU/BSD coreutils) cluster, but Go's flag package treats "-rf" as one flag,
+// `find` uses single-dash long options, and PowerShell uses "-LongName". So we
+// only expand under POSIX shells, and only single-dash all-letter clusters.
+func expandShortClusters(args []string, shell ir.Shell) []string {
+	out := append([]string(nil), args...)
+	for _, a := range args {
+		if !isShortCluster(a, shell) {
+			continue
+		}
+		for _, r := range a[1:] {
+			out = append(out, "-"+string(r))
+		}
+	}
+	return out
+}
+
+// isShortCluster reports whether tok is a POSIX bundled short-option cluster
+// (e.g. "-rf"): a single leading dash, more than one letter, all letters. cmd
+// (/switches) and PowerShell (-LongName) do not bundle, so they never qualify.
+func isShortCluster(tok string, shell ir.Shell) bool {
+	if shell == ir.ShellCmd || shell == ir.ShellPwsh {
+		return false
+	}
+	if len(tok) <= 2 || tok[0] != '-' || tok[1] == '-' {
+		return false
+	}
+	for _, r := range tok[1:] {
+		if !unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
+}
+
 // Parse decodes and validates a config from YAML bytes. Unknown fields are
 // rejected so that typos in a rule file surface as errors instead of being
 // silently ignored.
@@ -277,10 +341,8 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 	if !r.Match.hasConstraint() {
 		return fmt.Errorf("rule %q: match has no conditions", r.ID)
 	}
-	for _, tok := range r.Match.Command {
-		if tok == "" {
-			return fmt.Errorf("rule %q: empty token in match.command", r.ID)
-		}
+	if slices.Contains(r.Match.Command, "") {
+		return fmt.Errorf("rule %q: empty token in match.command", r.ID)
 	}
 	for _, sh := range r.Match.Shells {
 		if !sh.Valid() {

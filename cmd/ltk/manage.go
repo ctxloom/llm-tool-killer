@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
-	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
 )
 
 func newManageCmd() *cobra.Command {
@@ -23,21 +22,23 @@ func newManageCmd() *cobra.Command {
 
 // manageFlags are shared by install and uninstall.
 type manageFlags struct {
-	engineName   string
-	settingsPath string
-	bin          string
-	configPath   string
-	global       bool
-	printOnly    bool
+	engineName     string
+	settingsPath   string
+	bin            string
+	configPath     string
+	global         bool
+	printOnly      bool
+	noDefaultRules bool
 }
 
 func (f *manageFlags) bind(c *cobra.Command) {
 	c.Flags().StringVar(&f.engineName, "engine", "", "force an engine (default: auto-detect the most relevant)")
 	c.Flags().StringVar(&f.settingsPath, "settings", "", "explicit settings file path (overrides the engine default)")
 	c.Flags().StringVar(&f.bin, "bin", "ltk", "the ltk invocation the hook should run")
-	c.Flags().StringVar(&f.configPath, "config", ".ltk.yaml", "rules file the hook should use (\"\" to omit)")
+	c.Flags().StringVar(&f.configPath, "config", ".ltk/config.yaml", "rules file the hook should use (\"\" to omit)")
 	c.Flags().BoolVar(&f.global, "global", false, "target the user-level config instead of the project")
 	c.Flags().BoolVar(&f.printOnly, "print", false, "print the resulting config to stdout instead of writing")
+	c.Flags().BoolVar(&f.noDefaultRules, "no-default-rules", false, "scaffold an empty rules file instead of the shipped defaults")
 }
 
 // resolve picks the engine and its settings path.
@@ -78,7 +79,7 @@ func newInstallCmd() *cobra.Command {
 			}
 			command := eng.HookCommand(f.bin, f.configPath)
 			if f.configPath != "" {
-				if err := scaffoldConfig(f.configPath); err != nil {
+				if err := scaffoldConfig(f.configPath, !f.noDefaultRules); err != nil {
 					return err
 				}
 			}
@@ -144,17 +145,25 @@ func newUninstallCmd() *cobra.Command {
 	return c
 }
 
-// scaffoldConfig writes a starter rules file if one does not already exist.
-func scaffoldConfig(path string) error {
+// scaffoldConfig writes a rules file if one does not already exist: the shipped
+// defaults, or (with withDefaults=false) a minimal empty config.
+func scaffoldConfig(path string, withDefaults bool) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil // leave the user's rules alone
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(rules.StarterConfig), 0o644); err != nil {
-		return fmt.Errorf("write starter config %s: %w", path, err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
-	fmt.Fprintf(os.Stderr, "ltk: wrote starter rules file %s (edit it to taste)\n", path)
+	content := minimalRules
+	if withDefaults {
+		content = defaultRules
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write rules file %s: %w", path, err)
+	}
+	fmt.Fprintf(os.Stderr, "ltk: wrote rules file %s (edit it to taste)\n", path)
 	return nil
 }
 

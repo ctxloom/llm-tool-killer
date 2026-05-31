@@ -2,28 +2,39 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
         "hooks": [
           {
-            "type": "command",
-            "command": "ctxloom tasks stamp-plan"
+            "command": "ctxloom tasks stamp-plan",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "${CLAUDE_PROJECT_DIR}/bin/ltk evaluate --config .ltk/config.yaml",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|PowerShell"
       }
     ],
     "SessionStart": [
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "ctxloom session bind"
+            "command": "ctxloom session bind",
+            "type": "command"
           }
         ]
       }
     ]
   },
   "statusLine": {
-    "type": "command",
-    "command": "ctxloom meta hud"
+    "command": "ctxloom meta hud",
+    "type": "command"
   }
 }

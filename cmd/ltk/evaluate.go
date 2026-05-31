@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,10 +16,14 @@ import (
 	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
 	"github.com/benjaminabbitt/llm-tool-killer/internal/shellenv"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/state"
 )
 
-// configSearch lists the default config locations, in order.
+// configSearch lists the default config locations, in order. The .ltk/ layout
+// (config + override state together) is preferred; the flat .ltk.yaml is kept
+// for back-compat.
 var configSearch = []string{
+	".ltk/config.yaml",
 	".ltk.yaml",
 	"llm-tool-killer.yaml",
 	".llm-tool-killer.yaml",
@@ -44,7 +51,7 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := loadConfig(cfgPath)
+	cfg, resolved, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
 	}
@@ -62,6 +69,11 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	a.HostShell = shellenv.FromEnv(os.Getenv("SHELL"))
 	resp := a.Decide(context.Background(), req)
 
+	if !resp.Allow && cfg.Defaults.RepeatWindowSeconds > 0 {
+		resp = confirmByRepeat(resp, req.Command, statePath(resolved),
+			time.Duration(cfg.Defaults.RepeatWindowSeconds)*time.Second)
+	}
+
 	out, err := adapter.Encode(resp)
 	if err != nil {
 		return fmt.Errorf("encode decision: %w", err)
@@ -76,16 +88,49 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	return nil
 }
 
-// loadConfig loads the given path, or searches default locations. If no config
-// is found and none was requested, it returns an empty allow-all config.
-func loadConfig(path string) (*rules.Config, error) {
+// confirmByRepeat implements the "run it again to permit" override: a denied
+// command is remembered for window, and the next identical command within that
+// window is allowed instead. State persists in stateFile across hook calls.
+// It is an escape hatch, not a control (see internal/state).
+func confirmByRepeat(resp engine.Response, command, stateFile string, window time.Duration) engine.Response {
+	now := time.Now()
+	key := strings.TrimSpace(command)
+	st := state.Open(stateFile)
+	if st.Armed(key, now) {
+		st.Clear(key)
+		_ = st.Save(now)
+		fmt.Fprintln(os.Stderr, "ltk: command repeated within the override window — allowing.")
+		return engine.Response{Allow: true}
+	}
+	st.Arm(key, now, window)
+	_ = st.Save(now)
+	resp.Reason = strings.TrimRight(resp.Reason, "\n") +
+		fmt.Sprintf("\n\nIf you really mean it, run the exact same command again within %ds to proceed.", int(window.Seconds()))
+	return resp
+}
+
+// statePath puts the override state next to the resolved config (e.g. in .ltk/),
+// or under .ltk/ in the cwd when the config location is unknown.
+func statePath(configPath string) string {
+	if configPath == "" {
+		return filepath.Join(".ltk", "state.json")
+	}
+	return filepath.Join(filepath.Dir(configPath), "state.json")
+}
+
+// loadConfig loads the given path, or searches the default locations, returning
+// the resolved path (empty when falling back to the built-in allow-all config).
+func loadConfig(path string) (*rules.Config, string, error) {
 	if path != "" {
-		return rules.Load(path)
+		c, err := rules.Load(path)
+		return c, path, err
 	}
 	for _, candidate := range configSearch {
 		if _, err := os.Stat(candidate); err == nil {
-			return rules.Load(candidate)
+			c, err := rules.Load(candidate)
+			return c, candidate, err
 		}
 	}
-	return rules.Parse([]byte("version: 1\nrules: []\n"))
+	c, err := rules.Parse([]byte("version: 1\nrules: []\n"))
+	return c, "", err
 }

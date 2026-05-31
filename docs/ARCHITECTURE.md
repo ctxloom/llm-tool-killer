@@ -140,3 +140,8 @@ each `engine.Adapter` absorbs:
 Done: POSIX-shell frontend, real **pwsh** frontend (native parser), **cmd**
 frontend (hand-written lexer), rule engine, Claude Code engine (`evaluate` +
 `manage install`/`uninstall`).
+
+The shape of the whole system is one idea: every shell dialect lowers into one
+IR, and everything downstream — understanding, rule matching, engine I/O —
+speaks only that IR. Adding a shell or an engine is additive, never a rewrite.
+If you remember one thing, remember that seam.

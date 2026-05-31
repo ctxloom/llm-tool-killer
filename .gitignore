@@ -4,6 +4,9 @@
 *.out
 coverage.*
 
+# ltk "confirm by repeating" override state (runtime, regenerable)
+.ltk/state.json
+
 # OS / editor
 .DS_Store
 

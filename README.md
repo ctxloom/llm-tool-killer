@@ -169,14 +169,21 @@ Register the hook in your agent's config and scaffold a starter rules file.
 directory) and installs there:
 
 ```sh
-ltk manage install               # detect engine; write its config + .ltk.yaml
+ltk manage install               # detect engine; write its config + .ltk/config.yaml
 ltk manage install --global      # user-level config instead of project
 ltk manage install --print       # dry run: show the merged config, write nothing
 ltk manage uninstall             # cleanly remove the hook again (exact inverse)
 ```
 
 `install` merges the hook **non-destructively** (your other settings are
-preserved) and writes a starter `.ltk.yaml` you can edit and commit.
+preserved) and writes a starter `.ltk/config.yaml` you can edit and commit. The
+starter is ltk's shipped default rule set (documented in
+[docs/DEFAULTS.md](docs/DEFAULTS.md)); pass `--no-default-rules` for an empty one.
+
+Commit that `.ltk/config.yaml` alongside your code, and the payoff is automatic: the
+next time an agent reaches for a command you've ruled out, it doesn't get a
+silent failure or an opaque block — it gets your reason and your suggested
+command, and retries the right way.
 
 <details>
 <summary>Manual Claude Code settings.json</summary>
@@ -186,7 +193,7 @@ preserved) and writes a starter `.ltk.yaml` you can edit and commit.
   "hooks": {
     "PreToolUse": [
       { "matcher": "Bash|PowerShell",
-        "hooks": [ { "type": "command", "command": "ltk evaluate --config .ltk.yaml" } ] }
+        "hooks": [ { "type": "command", "command": "ltk evaluate --config .ltk/config.yaml" } ] }
     ]
   }
 }
@@ -195,8 +202,12 @@ preserved) and writes a starter `.ltk.yaml` you can edit and commit.
 
 ## Rules
 
-Rules live in a YAML file (`.ltk.yaml` by convention). The first matching `deny`
-wins; its `message`/`suggest` is returned to the model.
+Rules live in a YAML file (`.ltk/config.yaml` by convention). The first matching `deny`
+wins; its `message`/`suggest` is returned to the model. A rule can be turned off
+in place with `enabled: false` (default true). And with
+`defaults.repeat_window_seconds` set, re-running a denied command within that
+window proceeds anyway — an explicit, time-boxed escape hatch, not a security
+control.
 
 ```yaml
 version: 1
@@ -230,6 +241,34 @@ rules:
 **positional** args (subcommands, order matters), and **options** (flags, order
 doesn't). The full model — including cross-shell portability — is in
 [docs/RULES.md](docs/RULES.md).
+
+### This repo runs its own rules
+
+`ltk` dogfoods itself. The rules enforced against agents working in *this*
+repository live in [`.ltk/config.yaml`](.ltk/config.yaml), wired in through the `PreToolUse`
+hook in [`.claude/settings.json`](.claude/settings.json). They redirect
+`go test` / `go build` / `go vet` to the `just` recipes, send releases through
+[Versionator](https://github.com/benjaminabbitt/versionator) instead of a
+hand-cut `git tag`, swap `git push --force` for `--force-with-lease`, and point
+`golangci-lint` at the gocyclo gate (the pinned golangci-lint can't analyze this
+go1.25 module). It also carries cooperative nudges off common LLM-agent
+footguns — `--no-verify`, `git reset --hard` / `git clean`, blanket `git add -A`,
+rewriting the git identity, `rm -rf`, `sudo`, `pkill`/`killall`, and whole-tree
+`gofmt -w`. See [`.ltk/config.yaml`](.ltk/config.yaml) for the live set. The hook runs
+`bin/ltk`, so build it first with `just build`.
+
+It works. Here's the hook catching this project's own coding agent reaching for
+`go test` while building ltk:
+
+```
+● Bash(go test ./tools/extract-defaults/ ./cmd/ltk/ 2>&1 | tail -20)
+  ⎿  Error: Run tests through the task runner so the whole suite (incl. the README-driven acceptance tests)
+     runs the same way CI does.
+
+     If you really mean it, run the exact same command again within 30s to proceed.
+
+     Use instead: just test
+```
 
 ## Supported
 

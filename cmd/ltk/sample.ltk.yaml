@@ -1,0 +1,52 @@
+# Code generated from docs/DEFAULTS.md by tools/extract-defaults; DO NOT EDIT.
+# Change the rules + rationale there, then run `just defaults` (lefthook enforces sync).
+# llm-tool-killer — default rule set, shipped with `ltk`.
+# Edit docs/DEFAULTS.md (the source of truth), not this file.
+version: 1
+
+defaults:
+  on_parse_error: allow
+  repeat_window_seconds: 30
+
+rules:
+  - id: tests-via-task-runner
+    match: { command: [go, test] }
+    message: "Run tests through the project task runner, not the compiler directly."
+    suggest: "just test"
+  - id: no-reset-hard
+    match: { command: [git, reset, --hard] }
+    message: "`git reset --hard` discards uncommitted work irreversibly. Stash or commit first."
+    suggest: "git stash --include-untracked"
+  - id: no-git-clean
+    match: { command: [git, clean] }
+    message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash."
+    suggest: "git stash --include-untracked"
+  - id: no-skip-commit-hooks
+    match: { command: [git, commit, --no-verify] }
+    message: "Don't bypass commit hooks with --no-verify — fix what the hook flags, then commit."
+  - id: no-skip-push-hooks
+    match: { command: [git, push, --no-verify] }
+    message: "Don't bypass push hooks with --no-verify — fix the failure, then push."
+  - id: no-force-push
+    match: { command: [git, push, --force] }
+    message: "A plain force-push can overwrite a teammate's commits."
+    suggest: "git push --force-with-lease"
+  - id: stage-explicitly
+    match: { command: [git, add], args_any: ["-A", "--all", "."] }
+    message: "Stage the files this change actually touches, not the whole tree."
+    suggest: "git add <path> [<path> …]"
+  - id: no-rewrite-git-identity
+    match: { command: [git, config], args_any: ["user.email", "user.name"] }
+    message: "Don't change the git identity from inside the agent; set it once in your own global config."
+  - id: rm-rf-careful
+    match: { command: rm, args_all: ["-r", "-f"] }
+    message: "Double-check the path before a recursive force-delete; delete specific paths, not trees, when you can."
+  - id: no-sudo
+    match: { command: sudo }
+    message: "Don't escalate privileges from inside the agent — ask a human to run anything that needs sudo."
+  - id: no-pkill
+    match: { command: pkill }
+    message: "Avoid pkill by name (wrong-PID risk) — find the specific PID and `kill` it."
+  - id: no-killall
+    match: { command: killall }
+    message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."

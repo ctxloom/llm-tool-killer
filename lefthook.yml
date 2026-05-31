@@ -1,0 +1,10 @@
+# llm-tool-killer git hooks (lefthook). Enable once with: just hooks
+#
+# The shipped default rules (cmd/ltk/sample.ltk.yaml, embedded in the binary) are
+# generated from docs/DEFAULTS.md. This hook regenerates and fails the commit if
+# they drift, so the documented defaults and the shipped file never disagree.
+pre-commit:
+  commands:
+    defaults-in-sync:
+      glob: "{docs/DEFAULTS.md,cmd/ltk/sample.ltk.yaml,tools/extract-defaults/*.go}"
+      run: go run ./tools/extract-defaults -check

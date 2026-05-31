@@ -25,6 +25,9 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 	script.Walk(func(c ir.SimpleCommand) bool {
 		for i := range cfg.Rules {
 			r := &cfg.Rules[i]
+			if !r.isEnabled() {
+				continue // `enabled: false` keeps a rule in the file but inert
+			}
 			if !r.Match.matches(script.Shell, c) {
 				continue
 			}

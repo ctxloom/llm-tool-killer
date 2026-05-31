@@ -75,8 +75,20 @@ complexity-top:
 tidy:
     go mod tidy
 
-# Full pre-commit gate: format check, vet, complexity, tests.
-check: fmt-check vet complexity test
+# Regenerate the shipped default rules from docs/DEFAULTS.md (the source of truth).
+defaults:
+    go run ./tools/extract-defaults
+
+# Fail if the shipped defaults are out of sync with docs/DEFAULTS.md.
+defaults-check:
+    go run ./tools/extract-defaults -check
+
+# Install git hooks via lefthook (run once).
+hooks:
+    lefthook install
+
+# Full pre-commit gate: format check, vet, complexity, defaults sync, tests.
+check: fmt-check vet complexity defaults-check test
 
 # Build then run the bundled smoke checks against examples/rules.yaml.
 smoke: build
