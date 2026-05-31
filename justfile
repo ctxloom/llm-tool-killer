@@ -22,6 +22,10 @@ build:
 build-static:
     CGO_ENABLED=0 go build -ldflags "-s -w {{ldflags}}" -o {{bin}} {{pkg}}
 
+# Install ltk into GOBIN (version-stamped).
+install:
+    go install -ldflags "{{ldflags}}" {{pkg}}
+
 # Show the version that builds will stamp.
 show-version:
     @versionator output version
