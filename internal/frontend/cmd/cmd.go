@@ -63,117 +63,144 @@ type tok struct {
 }
 
 func lex(s string) []tok {
-	var toks []tok
-	var buf strings.Builder
-	dynamic, hasWord := false, false
+	l := &lexer{s: s}
+	return l.run()
+}
 
-	flush := func() {
-		if hasWord {
-			toks = append(toks, tok{kind: tWord, text: buf.String(), dynamic: dynamic})
-			buf.Reset()
-			dynamic, hasWord = false, false
-		}
+type lexer struct {
+	s       string
+	i       int
+	toks    []tok
+	buf     strings.Builder
+	dynamic bool
+	hasWord bool
+}
+
+func (l *lexer) flush() {
+	if l.hasWord {
+		l.toks = append(l.toks, tok{kind: tWord, text: l.buf.String(), dynamic: l.dynamic})
+		l.buf.Reset()
+		l.dynamic, l.hasWord = false, false
 	}
-	add := func(b byte) { buf.WriteByte(b); hasWord = true }
-	op := func(k tkind, t string) { toks = append(toks, tok{kind: k, text: t}) }
+}
 
-	for i := 0; i < len(s); {
-		c := s[i]
-		switch c {
-		case '^': // escape: next char is literal
-			if i+1 < len(s) {
-				add(s[i+1])
-				i += 2
-			} else {
-				i++
-			}
-		case '"': // quoted segment until next quote or end
-			hasWord = true
-			i++
-			for i < len(s) && s[i] != '"' {
-				if s[i] == '%' {
-					if j := strings.IndexByte(s[i+1:], '%'); j >= 0 {
-						buf.WriteString(s[i : i+j+2])
-						dynamic = true
-						i += j + 2
-						continue
-					}
-				}
-				buf.WriteByte(s[i])
-				i++
-			}
-			if i < len(s) {
-				i++ // closing quote
-			}
+func (l *lexer) add(b byte)             { l.buf.WriteByte(b); l.hasWord = true }
+func (l *lexer) emit(k tkind, t string) { l.toks = append(l.toks, tok{kind: k, text: t}) }
+
+func (l *lexer) run() []tok {
+	for l.i < len(l.s) {
+		switch l.s[l.i] {
+		case '^':
+			l.lexCaret()
+		case '"':
+			l.lexQuoted()
 		case ' ', '\t', '\r':
-			flush()
-			i++
+			l.flush()
+			l.i++
 		case '\n':
-			flush()
-			op(tSeq, "\n")
-			i++
+			l.flush()
+			l.emit(tSeq, "\n")
+			l.i++
 		case '&':
-			flush()
-			if i+1 < len(s) && s[i+1] == '&' {
-				op(tAnd, "&&")
-				i += 2
-			} else {
-				op(tSeq, "&")
-				i++
-			}
+			l.lexPair('&', tAnd, "&&", tSeq, "&")
 		case '|':
-			flush()
-			if i+1 < len(s) && s[i+1] == '|' {
-				op(tOr, "||")
-				i += 2
-			} else {
-				op(tPipe, "|")
-				i++
-			}
+			l.lexPair('|', tOr, "||", tPipe, "|")
 		case '(':
-			flush()
-			op(tLParen, "(")
-			i++
+			l.flush()
+			l.emit(tLParen, "(")
+			l.i++
 		case ')':
-			flush()
-			op(tRParen, ")")
-			i++
+			l.flush()
+			l.emit(tRParen, ")")
+			l.i++
 		case '>', '<':
-			// a pure-digit word immediately before is a file-descriptor prefix
-			// (e.g. 2>): drop it from argv rather than emitting it.
-			if hasWord && isDigits(buf.String()) && !dynamic {
-				buf.Reset()
-				hasWord = false
-			} else {
-				flush()
-			}
-			o := string(c)
-			i++
-			if c == '>' && i < len(s) && s[i] == '>' {
-				o += ">"
-				i++
-			}
-			if i < len(s) && s[i] == '&' {
-				o += "&"
-				i++
-			}
-			op(tRedir, o)
+			l.lexRedir()
 		case '%':
-			if j := strings.IndexByte(s[i+1:], '%'); j >= 0 {
-				buf.WriteString(s[i : i+j+2])
-				hasWord, dynamic = true, true
-				i += j + 2
-			} else {
-				add(c)
-				i++
+			if !l.lexPercent() {
+				l.add(l.s[l.i])
+				l.i++
 			}
 		default:
-			add(c)
-			i++
+			l.add(l.s[l.i])
+			l.i++
 		}
 	}
-	flush()
-	return toks
+	l.flush()
+	return l.toks
+}
+
+// lexCaret handles ^: the next character is taken literally.
+func (l *lexer) lexCaret() {
+	if l.i+1 < len(l.s) {
+		l.add(l.s[l.i+1])
+		l.i += 2
+	} else {
+		l.i++
+	}
+}
+
+// lexQuoted reads a "…" segment (quotes stripped) until the next quote or end.
+func (l *lexer) lexQuoted() {
+	l.hasWord = true
+	l.i++
+	for l.i < len(l.s) && l.s[l.i] != '"' {
+		if l.s[l.i] == '%' && l.lexPercent() {
+			continue
+		}
+		l.buf.WriteByte(l.s[l.i])
+		l.i++
+	}
+	if l.i < len(l.s) {
+		l.i++ // closing quote
+	}
+}
+
+// lexPercent consumes a %VAR% run into the current word, marking it dynamic.
+// Returns false (consuming nothing) if there is no closing %.
+func (l *lexer) lexPercent() bool {
+	j := strings.IndexByte(l.s[l.i+1:], '%')
+	if j < 0 {
+		return false
+	}
+	l.buf.WriteString(l.s[l.i : l.i+j+2])
+	l.dynamic, l.hasWord = true, true
+	l.i += j + 2
+	return true
+}
+
+// lexPair emits a doubled operator (e.g. &&) or its single form (&).
+func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, singleText string) {
+	l.flush()
+	if l.i+1 < len(l.s) && l.s[l.i+1] == ch {
+		l.emit(dbl, dblText)
+		l.i += 2
+	} else {
+		l.emit(single, singleText)
+		l.i++
+	}
+}
+
+// lexRedir reads a redirection operator, dropping any file-descriptor prefix
+// (e.g. the 2 in 2>) so it does not leak into argv.
+func (l *lexer) lexRedir() {
+	if l.hasWord && isDigits(l.buf.String()) && !l.dynamic {
+		l.buf.Reset()
+		l.hasWord = false
+	} else {
+		l.flush()
+	}
+	c := l.s[l.i]
+	o := string(c)
+	l.i++
+	if c == '>' && l.i < len(l.s) && l.s[l.i] == '>' {
+		o += ">"
+		l.i++
+	}
+	if l.i < len(l.s) && l.s[l.i] == '&' {
+		o += "&"
+		l.i++
+	}
+	l.emit(tRedir, o)
 }
 
 func isDigits(s string) bool {

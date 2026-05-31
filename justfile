@@ -36,12 +36,21 @@ fmt:
 vet:
     go vet ./...
 
+# Cyclomatic complexity gate (gocyclo, pinned via go.mod tool directive).
+# Reports any function whose complexity exceeds 15.
+complexity:
+    go tool gocyclo -over 15 .
+
+# Show the most complex functions (informational; never fails).
+complexity-top:
+    go tool gocyclo -top 15 .
+
 # Tidy modules.
 tidy:
     go mod tidy
 
-# Full pre-commit gate: format check, vet, tests.
-check: fmt-check vet test
+# Full pre-commit gate: format check, vet, complexity, tests.
+check: fmt-check vet complexity test
 
 # Build then run the bundled smoke checks against examples/rules.yaml.
 smoke: build

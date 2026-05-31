@@ -253,29 +253,36 @@ func (c *Config) normalizeAndValidate() error {
 	}
 	seen := make(map[string]bool, len(c.Rules))
 	for i := range c.Rules {
-		r := &c.Rules[i]
-		if r.ID == "" {
-			return fmt.Errorf("rule #%d: missing id", i)
+		if err := validateRule(&c.Rules[i], i, seen); err != nil {
+			return err
 		}
-		if seen[r.ID] {
-			return fmt.Errorf("duplicate rule id %q", r.ID)
+	}
+	return nil
+}
+
+// validateRule checks one rule and records its id in seen.
+func validateRule(r *Rule, index int, seen map[string]bool) error {
+	if r.ID == "" {
+		return fmt.Errorf("rule #%d: missing id", index)
+	}
+	if seen[r.ID] {
+		return fmt.Errorf("duplicate rule id %q", r.ID)
+	}
+	seen[r.ID] = true
+	if err := validAction(r.action()); err != nil {
+		return fmt.Errorf("rule %q: %w", r.ID, err)
+	}
+	if !r.Match.hasConstraint() {
+		return fmt.Errorf("rule %q: match has no conditions", r.ID)
+	}
+	for _, tok := range r.Match.Command {
+		if tok == "" {
+			return fmt.Errorf("rule %q: empty token in match.command", r.ID)
 		}
-		seen[r.ID] = true
-		if err := validAction(r.action()); err != nil {
-			return fmt.Errorf("rule %q: %w", r.ID, err)
-		}
-		if !r.Match.hasConstraint() {
-			return fmt.Errorf("rule %q: match has no conditions", r.ID)
-		}
-		for _, tok := range r.Match.Command {
-			if tok == "" {
-				return fmt.Errorf("rule %q: empty token in match.command", r.ID)
-			}
-		}
-		for _, sh := range r.Match.Shells {
-			if !sh.Valid() {
-				return fmt.Errorf("rule %q: unknown shell %q in match.shells", r.ID, sh)
-			}
+	}
+	for _, sh := range r.Match.Shells {
+		if !sh.Valid() {
+			return fmt.Errorf("rule %q: unknown shell %q in match.shells", r.ID, sh)
 		}
 	}
 	return nil

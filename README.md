@@ -125,11 +125,17 @@ doesn't). The full model — including cross-shell portability — is in
 ## Develop
 
 ```sh
-just            # list recipes
-just check      # fmt-check + vet + test
-just test       # go test ./...
-just smoke      # build + run sample decisions
+just                # list recipes
+just check          # fmt-check + vet + complexity + test
+just test           # go test ./...
+just complexity     # cyclomatic-complexity gate (gocyclo, fails > 15)
+just complexity-top # show the most complex functions (informational)
+just smoke          # build + run sample decisions
 ```
+
+The complexity gate uses [`gocyclo`](https://github.com/fzipp/gocyclo), pinned
+via a `go.mod` tool directive (`go tool gocyclo`), so it needs no separate
+install and tracks the toolchain.
 
 ## Scope
 
