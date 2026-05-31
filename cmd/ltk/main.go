@@ -12,10 +12,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is set at build time via ldflags (package main), e.g.
+//
+//	-X main.Version=v1.2.3
+//
+// It defaults to "dev"; the justfile stamps it from versionator.
+var Version = "dev"
+
 func main() {
 	root := &cobra.Command{
 		Use:           "ltk",
 		Short:         "Gate an LLM agent's shell commands via a pre-tool hook",
+		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

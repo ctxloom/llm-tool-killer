@@ -4,17 +4,35 @@
 bin := "bin/ltk"
 pkg := "./cmd/ltk"
 
+# Version from versionator (fallback "dev" where versionator isn't available).
+# Requires versionator >= v0.2.0 (DateTimeDirty + `output version`). Same version
+# string format as ctxloom: v<major.minor.patch>[-<shorthash><dirty timestamp>].
+version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
+ldflags := "-X main.Version=" + version
+
 # List available recipes.
 default:
     @just --list
 
-# Build a dev binary into ./bin.
+# Build a dev binary into ./bin (version-stamped).
 build:
-    go build -o {{bin}} {{pkg}}
+    go build -ldflags "{{ldflags}}" -o {{bin}} {{pkg}}
 
-# Build a stripped, CGO-free static binary (release shape).
+# Build a stripped, CGO-free static binary (release shape, version-stamped).
 build-static:
-    CGO_ENABLED=0 go build -ldflags='-s -w' -o {{bin}} {{pkg}}
+    CGO_ENABLED=0 go build -ldflags "-s -w {{ldflags}}" -o {{bin}} {{pkg}}
+
+# Show the version that builds will stamp.
+show-version:
+    @versionator output version
+
+# Auto-bump the version from commit messages (versionator).
+bump:
+    versionator bump
+
+# Tag and push a release for the current version (versionator).
+release:
+    versionator release push
 
 # Run all tests.
 test:
