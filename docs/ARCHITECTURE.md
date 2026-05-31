@@ -132,11 +132,11 @@ each `engine.Adapter` absorbs:
 
 # Not yet built
 
-- **cmd** lexer (currently a stub).
 - **Codex** and **Gemini** engines (above) — `engine.Engine` implementations,
   registered in `engines()`; `manage` and `evaluate` already dispatch
   polymorphically, so each is purely additive.
 - More `match` operators.
 
-Done: POSIX-shell frontend, real **pwsh** frontend (native parser),
-rule engine, Claude Code engine (`evaluate` + `manage install`/`uninstall`).
+Done: POSIX-shell frontend, real **pwsh** frontend (native parser), **cmd**
+frontend (hand-written lexer), rule engine, Claude Code engine (`evaluate` +
+`manage install`/`uninstall`).

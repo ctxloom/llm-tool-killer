@@ -113,6 +113,19 @@ func TestUnparseableCommandPassesThrough(t *testing.T) {
 	}
 }
 
+func TestCmdShellEndToEnd(t *testing.T) {
+	a := newApp(t, "version: 1\nrules:\n  - id: no-tag\n    match: { command: [git, tag] }\n    message: use the release pipeline\n")
+	// git tag buried in a cmd `&` chain, parsed by the cmd frontend.
+	r := a.Decide(context.Background(), engine.Request{Command: "echo hi & git tag v1.0", Shell: "cmd"})
+	if r.Allow {
+		t.Error("git tag in a cmd & chain should be denied")
+	}
+	// a different command is allowed.
+	if !a.Decide(context.Background(), engine.Request{Command: "dir /s", Shell: "cmd"}).Allow {
+		t.Error("dir /s should be allowed")
+	}
+}
+
 func TestParseErrorDenyPolicy(t *testing.T) {
 	a := newApp(t, "version: 1\ndefaults: { on_parse_error: deny }\nrules: []\n")
 	r := a.Decide(context.Background(), engine.Request{Command: "echo $(", Shell: "bash"})

@@ -119,7 +119,7 @@ doesn't). The full model — including cross-shell portability — is in
 
 | | |
 |---|---|
-| **Shells** | sh, bash, zsh, mksh (in-process); PowerShell (native parser). cmd: planned. |
+| **Shells** | sh, bash, zsh, mksh (in-process via mvdan/sh); PowerShell (native parser); cmd.exe (hand-written lexer). |
 | **Engines** | Claude Code (`PreToolUse`). Codex & Gemini: planned (adapters only — see ARCHITECTURE.md). |
 
 ## Develop
