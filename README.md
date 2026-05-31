@@ -36,6 +36,14 @@ name, create a symlink, or any of a hundred other paths. `ltk` understands
 claim beyond that. Deeper intent-based detection is aspirational and may never be
 feasible.
 
+One bypass deserves special mention precisely because the redirect model leans
+on it: the agent can **add a `just`/`make` target that runs the blocked command,
+then invoke that target**. The hook only sees the command the agent runs
+directly (`just sneaky-test`); the `go test` the task runner spawns is a child
+process the hook never inspects — the same property that lets a legitimate
+`just test` through. So treat your `justfile`/`Makefile` as part of the trusted
+surface, not something the rules can police.
+
 **If you have "never-ever" requirements, run the agent in a sandbox / container.**
 That's the right tool for hard isolation; `ltk` is not.
 
