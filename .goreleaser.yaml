@@ -1,0 +1,69 @@
+# GoReleaser config — builds cross-platform static binaries and cuts a GitHub
+# Release when a v* tag is pushed. Run locally with `goreleaser release --clean`
+# (needs GITHUB_TOKEN); CI runs it via .github/workflows/release.yml on tag.
+version: 2
+
+project_name: ltk
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: ltk
+    main: ./cmd/ltk
+    binary: ltk
+    env:
+      - CGO_ENABLED=0 # pure-Go static binary, no libc dependency
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # not a release target
+    flags:
+      - -trimpath
+    # Stamp main.Version with the tag (e.g. v1.2.3), matching `ltk --version`.
+    ldflags:
+      - -s -w -X main.Version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
+
+archives:
+  - id: ltk
+    formats: [tar.gz]
+    # Windows users get a zip instead.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  draft: false
+  prerelease: auto # tags like v1.2.3-rc1 are marked pre-release
+  footer: |
+    ---
+    Install: `go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@{{ .Tag }}`
+    or download a binary above and run `ltk manage install`.

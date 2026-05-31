@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: extractions/setup-just@v2
+
+      # fmt-check + vet + complexity (gocyclo via go.mod tool directive) +
+      # defaults-sync + tests, including the README-driven acceptance suite.
+      # versionator isn't on PATH here; the justfile falls back to version "dev".
+      - name: just check
+        run: just check
