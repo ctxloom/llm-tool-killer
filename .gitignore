@@ -1,0 +1,15 @@
+# Build artifacts
+/bin/
+*.test
+*.out
+coverage.*
+
+# OS / editor
+.DS_Store
+
+# Tooling backups (e.g. ctxloom *.ctxloom.bak)
+*.ctxloom.bak
+
+# ctxloom ephemeral data + cached remote clones (regenerable, embedded repos)
+.ctxloom/ephemeral/
+.ctxloom/cache/

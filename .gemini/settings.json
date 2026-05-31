@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "ctxloom session bind"
+      }
+    ]
+  },
+  "mcpServers": {
+    "ctxloom": {
+      "command": "ctxloom",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
