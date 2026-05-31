@@ -152,6 +152,11 @@ Run them with `just acceptance`.
 
 ## Install
 
+> **Claude Code is the only supported agent right now.** Codex and Gemini are
+> planned, not built — vote 👍 to prioritize:
+> [Gemini #1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1),
+> [Codex #2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2).
+
 Build a static binary (no runtime dependencies):
 
 ```sh
@@ -223,7 +228,7 @@ doesn't). The full model — including cross-shell portability — is in
 | | |
 |---|---|
 | **Shells** | sh, bash, zsh, mksh (in-process via mvdan/sh); PowerShell (native parser); cmd.exe (built-in lexer). Variable resolution: shell family. |
-| **Engines** | Claude Code (`PreToolUse`). Codex & Gemini: planned (adapters only — see ARCHITECTURE.md). |
+| **Engines** | **Claude Code only** right now (`PreToolUse`). Codex and Gemini are planned, not built — vote 👍 to prioritize: [Gemini #1](https://github.com/benjaminabbitt/llm-tool-killer/issues/1), [Codex #2](https://github.com/benjaminabbitt/llm-tool-killer/issues/2). |
 
 ## Develop
 
