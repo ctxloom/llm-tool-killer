@@ -63,11 +63,14 @@ irreversibly throws away uncommitted changes. Stash or commit first.
 ```
 
 `git clean` deletes untracked files for good — easy for an agent to fire while
-"tidying up" and wipe new, unsaved files.
+"tidying up" and wipe new, unsaved files. The dry-run forms (`-n` / `--dry-run`)
+only preview, so they're exempt.
 
 ```yaml
   - id: no-git-clean
-    match: { command: [git, clean] }
+    match:
+      command: [git, clean]
+      args_none: ["-n", "--dry-run"]
     message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash."
     suggest: "git stash --include-untracked"
 ```

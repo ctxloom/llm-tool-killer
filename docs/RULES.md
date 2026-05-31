@@ -82,7 +82,7 @@ match: { command: [git, push, --force, --no-verify] } # those flags in ANY order
 
 ### Refinements
 
-Two optional, program-agnostic conditions can be ANDed with (or used without)
+Three optional, program-agnostic conditions can be ANDed with (or used without)
 `command`:
 
 ```yaml
@@ -90,7 +90,26 @@ match:
   command: docker
   args_any: [build, buildx]   # at least one present anywhere in args
   args_all: [--push, --tag]   # all present anywhere in args
+  args_none: [--dry-run]      # exception: rule is SKIPPED if any present
 ```
+
+`args_none` is how you carve out **read-only or safe exceptions** to an otherwise
+firm rule. The listed tokens are escape hatches: if the command contains any of
+them, the rule does not match. This is the right tool for the `--list` /
+`--dry-run` / `-n` forms of a command you otherwise want to block:
+
+```yaml
+# Block creating tags, but allow read-only listing.
+- id: no-git-tag
+  match:
+    command: [git, tag]
+    args_none: ["--list", "-l", "-n"]   # `git tag --list` is fine
+  message: "Releases go through the pipeline, not a hand-cut `git tag`."
+```
+
+All three argument refinements see bundled short options expanded (so `-n` in
+`args_none` matches `rm -rn` too), and they are checked after `command` — an
+`args_none` hit on a non-matching command is moot.
 
 ## Portability across shells
 

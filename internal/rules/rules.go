@@ -167,18 +167,19 @@ type Match struct {
 	// treated as also carrying `-r` and `-f`, so `[rm, -r, -f]` matches `rm -rf`,
 	// `rm -fr`, and `rm -r -f` alike. See expandShortClusters.
 	Command CommandPattern `yaml:"command"`
-	// ArgsAny / ArgsAll are program-agnostic refinements: tokens that must
-	// appear somewhere in the arguments (beyond the Command prefix). Bundled
-	// short options are expanded here too.
-	ArgsAny []string `yaml:"args_any"` // at least one present in args
-	ArgsAll []string `yaml:"args_all"` // all present in args
+	// ArgsAny / ArgsAll / ArgsNone are program-agnostic refinements on the
+	// arguments (beyond the Command prefix). Bundled short options are expanded
+	// before all three are checked.
+	ArgsAny  []string `yaml:"args_any"`  // at least one present in args
+	ArgsAll  []string `yaml:"args_all"`  // all present in args
+	ArgsNone []string `yaml:"args_none"` // exceptions: rule skipped if ANY present
 	// Shells restricts the rule to these shells.
 	Shells []ir.Shell `yaml:"shells"`
 }
 
 func (m Match) hasConstraint() bool {
 	return len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
-		len(m.ArgsAll) > 0 || len(m.Shells) > 0
+		len(m.ArgsAll) > 0 || len(m.ArgsNone) > 0 || len(m.Shells) > 0
 }
 
 func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
@@ -199,6 +200,11 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
 	}
 	if len(m.ArgsAny) > 0 &&
 		!slices.ContainsFunc(m.ArgsAny, func(a string) bool { return slices.Contains(args, a) }) {
+		return false
+	}
+	// args_none: any listed token present means this invocation is an exception
+	// (e.g. a read-only `--list`/`--dry-run` form), so the rule does not match.
+	if slices.ContainsFunc(m.ArgsNone, func(a string) bool { return slices.Contains(args, a) }) {
 		return false
 	}
 	return true
