@@ -1,6 +1,6 @@
 package rules
 
-import "github.com/abbitt/llm-tool-killer/internal/ir"
+import "github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 
 // Decision is the result of evaluating a script against a config.
 type Decision struct {

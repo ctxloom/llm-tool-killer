@@ -9,12 +9,12 @@ package shell
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 // Frontend lowers POSIX-family shell into IR.
@@ -90,51 +90,56 @@ func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connecto
 			Negated:    st != nil && st.Negated,
 			Commands:   []ir.SimpleCommand{l.lowerCall(c, st)},
 		}}
-
 	case *syntax.BinaryCmd:
-		switch c.Op {
-		case syntax.Pipe, syntax.PipeAll:
-			return []ir.Pipeline{{
-				Connector: conn,
-				Negated:   st != nil && st.Negated,
-				Commands:  l.flattenPipe(c),
-			}}
-		case syntax.AndStmt:
-			return append(l.lowerStmt(c.X, conn), l.lowerStmt(c.Y, ir.ConnAnd)...)
-		case syntax.OrStmt:
-			return append(l.lowerStmt(c.X, conn), l.lowerStmt(c.Y, ir.ConnOr)...)
-		default:
-			return append(l.lowerStmt(c.X, conn), l.lowerStmt(c.Y, ir.ConnSeq)...)
-		}
-
+		return l.lowerBinary(c, st, conn)
 	case *syntax.Block:
 		return l.lowerStmts(c.Stmts)
-
 	case *syntax.Subshell:
 		return l.lowerStmts(c.Stmts)
-
 	default:
-		// Compound command (if/for/while/case/function/...) or a construct we
-		// don't model. Walk it to surface every simple command it contains so
-		// rules still match, then stop descending into each call we capture —
-		// lowerCall already pulls in any nested substitutions.
-		var out []ir.Pipeline
-		syntax.Walk(cmd, func(n syntax.Node) bool {
-			call, ok := n.(*syntax.CallExpr)
-			if !ok {
-				return true
-			}
-			out = append(out, ir.Pipeline{
-				Connector: ir.ConnSeq,
-				Commands:  []ir.SimpleCommand{l.lowerCall(call, nil)},
-			})
-			return false
-		})
-		if len(out) == 0 {
-			l.flags.Unparsed = true
-		}
-		return out
+		return l.lowerCompound(cmd)
 	}
+}
+
+// lowerBinary handles "|", "&&", "||" (and any other) binary commands.
+func (l *lowerer) lowerBinary(c *syntax.BinaryCmd, st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
+	switch c.Op {
+	case syntax.Pipe, syntax.PipeAll:
+		return []ir.Pipeline{{
+			Connector: conn,
+			Negated:   st != nil && st.Negated,
+			Commands:  l.flattenPipe(c),
+		}}
+	case syntax.AndStmt:
+		return append(l.lowerStmt(c.X, conn), l.lowerStmt(c.Y, ir.ConnAnd)...)
+	case syntax.OrStmt:
+		return append(l.lowerStmt(c.X, conn), l.lowerStmt(c.Y, ir.ConnOr)...)
+	default:
+		return append(l.lowerStmt(c.X, conn), l.lowerStmt(c.Y, ir.ConnSeq)...)
+	}
+}
+
+// lowerCompound handles a compound command (if/for/while/case/function/...) or
+// a construct we don't model: it walks the node to surface every simple command
+// inside so rules still match, stopping at each call we capture (lowerCall
+// already pulls in any nested substitutions).
+func (l *lowerer) lowerCompound(cmd syntax.Command) []ir.Pipeline {
+	var out []ir.Pipeline
+	syntax.Walk(cmd, func(n syntax.Node) bool {
+		call, ok := n.(*syntax.CallExpr)
+		if !ok {
+			return true
+		}
+		out = append(out, ir.Pipeline{
+			Connector: ir.ConnSeq,
+			Commands:  []ir.SimpleCommand{l.lowerCall(call, nil)},
+		})
+		return false
+	})
+	if len(out) == 0 {
+		l.flags.Unparsed = true
+	}
+	return out
 }
 
 // flattenPipe collects every command in a "|"/"|&" chain in order.
@@ -181,16 +186,18 @@ func (l *lowerer) lowerCall(c *syntax.CallExpr, st *syntax.Stmt) ir.SimpleComman
 	return sc
 }
 
+// shell eval/wrapper programs for opacity detection.
+var (
+	shEvalPrograms = []string{"eval"}
+	shWrappers     = []frontend.WrapperSpec{{
+		Programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"},
+		Flags:    []string{"-c"},
+	}}
+)
+
 // detectOpacity sets argv-derived flags (eval, sh/bash -c wrappers).
 func (l *lowerer) detectOpacity(sc ir.SimpleCommand) {
-	switch sc.Program() {
-	case "eval":
-		l.flags.HasEval = true
-	case "sh", "bash", "zsh", "dash", "ksh", "mksh":
-		if slices.Contains(sc.Args(), "-c") {
-			l.flags.Wrapper = true
-		}
-	}
+	frontend.ApplyOpacity(&l.flags, sc, shEvalPrograms, shWrappers...)
 }
 
 // word resolves a word to a best-effort literal string. Dynamic parts ($VAR,

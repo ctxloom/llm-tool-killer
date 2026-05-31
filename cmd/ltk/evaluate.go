@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/abbitt/llm-tool-killer/internal/app"
-	"github.com/abbitt/llm-tool-killer/internal/engine"
-	"github.com/abbitt/llm-tool-killer/internal/ir"
-	"github.com/abbitt/llm-tool-killer/internal/rules"
-	"github.com/abbitt/llm-tool-killer/internal/shellenv"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/app"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/engine"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/shellenv"
 )
 
 // configSearch lists the default config locations, in order.

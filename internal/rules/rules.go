@@ -15,7 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 // Action is the outcome a rule (or default policy) selects.
@@ -157,34 +157,46 @@ func matchCommand(pattern, argv []string, shell ir.Shell) bool {
 	if argv[0] != pattern[0] && path.Base(argv[0]) != pattern[0] {
 		return false
 	}
-
-	var positionals, options []string
-	for _, tok := range pattern[1:] {
-		if isOption(tok, shell) {
-			options = append(options, tok)
-		} else {
-			positionals = append(positionals, tok)
-		}
-	}
-
+	positionals, options := classifyArgs(pattern[1:], shell)
 	args := argv[1:]
 	for _, opt := range options {
 		if !slices.Contains(args, opt) {
 			return false
 		}
 	}
+	return isPrefix(positionals, classifyOperands(args, shell))
+}
 
+// classifyArgs splits pattern tokens into positionals (operands) and options.
+func classifyArgs(toks []string, shell ir.Shell) (positionals, options []string) {
+	for _, tok := range toks {
+		if isOption(tok, shell) {
+			options = append(options, tok)
+		} else {
+			positionals = append(positionals, tok)
+		}
+	}
+	return positionals, options
+}
+
+// classifyOperands returns the non-option arguments, in order.
+func classifyOperands(args []string, shell ir.Shell) []string {
 	operands := make([]string, 0, len(args))
 	for _, a := range args {
 		if !isOption(a, shell) {
 			operands = append(operands, a)
 		}
 	}
-	if len(positionals) > len(operands) {
+	return operands
+}
+
+// isPrefix reports whether prefix matches the start of s, positionally.
+func isPrefix(prefix, s []string) bool {
+	if len(prefix) > len(s) {
 		return false
 	}
-	for i, w := range positionals {
-		if operands[i] != w {
+	for i, w := range prefix {
+		if s[i] != w {
 			return false
 		}
 	}

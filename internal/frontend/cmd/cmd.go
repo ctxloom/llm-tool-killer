@@ -18,7 +18,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 // Frontend lowers cmd.exe command lines into the IR.
@@ -33,7 +34,7 @@ func (f *Frontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellCmd} }
 // Parse lowers src into a Script. It is best-effort and never errors; constructs
 // it cannot model set the Unparsed opacity flag.
 func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
-	p := &parser{toks: lex(src), shell: shell}
+	p := &parser{toks: lex(src)}
 	pipelines := p.parseSequence()
 	if p.pos < len(p.toks) {
 		p.flags.Unparsed = true // leftover tokens (e.g. an unmatched ')')
@@ -220,7 +221,6 @@ func isDigits(s string) bool {
 type parser struct {
 	toks  []tok
 	pos   int
-	shell ir.Shell
 	flags ir.OpacityFlags
 }
 
@@ -342,22 +342,13 @@ func (p *parser) skipRedirs() {
 	}
 }
 
+// cmd shell wrappers for opacity detection: cmd /c and cross-called pwsh -Command.
+var cmdWrappers = []frontend.WrapperSpec{
+	{Programs: []string{"cmd", "cmd.exe"}, Flags: []string{"/c", "/k"}},
+	{Programs: []string{"powershell", "powershell.exe", "pwsh", "pwsh.exe"}, Flags: []string{"-command", "-c", "-encodedcommand"}},
+}
+
 // detectOpacity flags cmd's shell wrappers (cmd /c, and cross-called pwsh -Command).
 func (p *parser) detectOpacity(sc *ir.SimpleCommand) {
-	switch strings.ToLower(sc.Program()) {
-	case "cmd", "cmd.exe":
-		for _, a := range sc.Args() {
-			if la := strings.ToLower(a); la == "/c" || la == "/k" {
-				p.flags.Wrapper = true
-				break
-			}
-		}
-	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
-		for _, a := range sc.Args() {
-			if la := strings.ToLower(a); la == "-command" || la == "-c" || la == "-encodedcommand" {
-				p.flags.Wrapper = true
-				break
-			}
-		}
-	}
+	frontend.ApplyOpacity(&p.flags, *sc, nil, cmdWrappers...)
 }

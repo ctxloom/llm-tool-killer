@@ -26,7 +26,7 @@ per-project, **check-in-able** config that restricts casual tool use.
 ### Use cases
 
 - **Don't `git tag` by hand** — use the established release pipeline (e.g.
-  [Versionator](https://github.com/abbitt/versionator)).
+  [Versionator](https://github.com/benjaminabbitt/versionator)).
 - **Don't run tests with the compiler** — use the `make`/`just` target so the
   real test environment (fixtures, env, build tags) is set up.
 - Nudge any "the casual way" → "the project's way": `npm install` → `pnpm`,
@@ -55,7 +55,7 @@ Build and install the binary (static, no dependencies):
 
 ```sh
 just build-static      # → bin/ltk
-# or: go install github.com/abbitt/llm-tool-killer/cmd/ltk@latest
+# or: go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@latest
 ```
 
 Then register the hook and scaffold a starter rules file. `manage install`

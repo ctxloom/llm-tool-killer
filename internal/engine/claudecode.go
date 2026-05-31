@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 // ClaudeCode adapts the Claude Code PreToolUse hook protocol.
@@ -179,6 +179,23 @@ func claudeRemoveHook(existing []byte, command string) ([]byte, error) {
 	if !ok {
 		return renderJSON(settings)
 	}
+	kept := removeCommandEntries(pre, command)
+	if len(kept) == 0 {
+		delete(hooks, "PreToolUse")
+	} else {
+		hooks["PreToolUse"] = kept
+	}
+	if len(hooks) == 0 {
+		delete(settings, "hooks")
+	} else {
+		settings["hooks"] = hooks
+	}
+	return renderJSON(settings)
+}
+
+// removeCommandEntries drops inner hooks running command from each PreToolUse
+// entry, and drops any entry left with no hooks.
+func removeCommandEntries(pre []any, command string) []any {
 	var kept []any
 	for _, e := range pre {
 		em, ok := e.(map[string]any)
@@ -191,32 +208,28 @@ func claudeRemoveHook(existing []byte, command string) ([]byte, error) {
 			kept = append(kept, e)
 			continue
 		}
-		var keptHooks []any
-		for _, h := range hs {
-			if hm, ok := h.(map[string]any); ok {
-				if c, _ := hm["command"].(string); c == command {
-					continue // drop our hook
-				}
-			}
-			keptHooks = append(keptHooks, h)
-		}
+		keptHooks := filterOutCommand(hs, command)
 		if len(keptHooks) == 0 {
 			continue // entry had only our hook → drop it
 		}
 		em["hooks"] = keptHooks
 		kept = append(kept, em)
 	}
-	if len(kept) == 0 {
-		delete(hooks, "PreToolUse")
-	} else {
-		hooks["PreToolUse"] = kept
+	return kept
+}
+
+// filterOutCommand returns the hooks whose command is not command.
+func filterOutCommand(hooks []any, command string) []any {
+	var kept []any
+	for _, h := range hooks {
+		if hm, ok := h.(map[string]any); ok {
+			if c, _ := hm["command"].(string); c == command {
+				continue
+			}
+		}
+		kept = append(kept, h)
 	}
-	if len(hooks) == 0 {
-		delete(settings, "hooks")
-	} else {
-		settings["hooks"] = hooks
-	}
-	return renderJSON(settings)
+	return kept
 }
 
 func decodeSettings(existing []byte) (map[string]any, error) {

@@ -21,7 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 // parseTimeout bounds a single shell-out to the PowerShell parser.
@@ -115,21 +116,19 @@ func lower(data []byte, shell ir.Shell) (*ir.Script, error) {
 	return script, nil
 }
 
+// PowerShell eval/wrapper programs for opacity detection.
+var (
+	pwshEvalPrograms = []string{"iex", "invoke-expression"}
+	pwshWrappers     = []frontend.WrapperSpec{{
+		Programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"},
+		Flags:    []string{"-command", "-c", "-encodedcommand"},
+	}}
+)
+
 // detectOpacity flags PowerShell's eval analog (Invoke-Expression/iex) and
 // shell wrappers (pwsh/powershell -Command).
 func detectOpacity(flags *ir.OpacityFlags, sc ir.SimpleCommand) {
-	switch strings.ToLower(sc.Program()) {
-	case "iex", "invoke-expression":
-		flags.HasEval = true
-	case "pwsh", "powershell", "pwsh.exe", "powershell.exe":
-		for _, a := range sc.Args() {
-			la := strings.ToLower(a)
-			if la == "-command" || la == "-c" || la == "-encodedcommand" {
-				flags.Wrapper = true
-				break
-			}
-		}
-	}
+	frontend.ApplyOpacity(flags, sc, pwshEvalPrograms, pwshWrappers...)
 }
 
 var (

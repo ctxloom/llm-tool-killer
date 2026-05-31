@@ -3,7 +3,7 @@ package shellenv
 import (
 	"testing"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 func TestShellFromPath(t *testing.T) {

@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
-	"github.com/abbitt/llm-tool-killer/internal/rules"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/rules"
 )
 
 func newAppWithDefault(t *testing.T, defaultShell ir.Shell) *App {

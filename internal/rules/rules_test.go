@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/abbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 const sampleYAML = `

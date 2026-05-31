@@ -5,7 +5,7 @@ package rules
 const StarterConfig = `# llm-tool-killer rules — restrict casual LLM tool use for THIS project.
 # Commands are parsed (across shells) and matched against these rules; the first
 # matching deny wins and its message is returned to the model so it can retry.
-# Full model: https://github.com/abbitt/llm-tool-killer/blob/main/docs/RULES.md
+# Full model: https://github.com/benjaminabbitt/llm-tool-killer/blob/main/docs/RULES.md
 version: 1
 
 defaults:
