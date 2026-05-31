@@ -30,13 +30,17 @@ install:
 show-version:
     @versionator output version
 
-# Auto-bump the version from commit messages (versionator).
-bump:
-    versionator bump
+# Set the release version in a PR (the only supported way to release).
+# Releases are merge-triggered: bump here, commit VERSION, merge — CI tags it.
+# See docs/RELEASING.md. Example: just set-version 0.7.0
+set-version version:
+    versionator set {{version}}
 
-# Tag and push a release for the current version (versionator).
+# Releases are cut by merging a VERSION bump to main, not from your machine.
 release:
-    versionator release push
+    @echo "Releases are merge-triggered. Run 'just set-version <v>', commit VERSION," >&2
+    @echo "open a PR, and merge it — CI tags and publishes. See docs/RELEASING.md." >&2
+    @exit 1
 
 # Run all tests.
 test:
