@@ -18,5 +18,8 @@ coverage.*
 .ctxloom/ephemeral/
 .ctxloom/cache/
 
+# Claude Code harness runtime state (scheduled-task lock, etc.)
+.claude/scheduled_tasks.lock
+
 # ltk manage install settings backups
 *.ltk.bak

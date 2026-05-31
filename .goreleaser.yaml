@@ -68,18 +68,18 @@ changelog:
       - Merge branch
 
 # Homebrew formula published to the shared ctxloom tap. macOS users:
-#   brew install benjaminabbitt/tap/ltk
+#   brew install ctxloom/tap/ltk
 brews:
   - name: ltk
     repository:
-      owner: benjaminabbitt
+      owner: ctxloom
       name: homebrew-tap
       # Cross-repo push needs a PAT with `contents:write` on homebrew-tap; the
       # default GITHUB_TOKEN only covers this repo. Provided as the
       # HOMEBREW_TAP_GITHUB_TOKEN secret (wired in .github/workflows/release.yml).
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/benjaminabbitt/llm-tool-killer"
+    homepage: "https://github.com/ctxloom/llm-tool-killer"
     description: "Pre-tool hook that redirects an LLM agent's shell commands to the project's preferred command"
     license: "BSD-3-Clause"
     # Don't push a formula for prereleases (e.g. v0.0.1-rc1) or snapshots — only
@@ -98,6 +98,6 @@ release:
   prerelease: auto # tags like v1.2.3-rc1 are marked pre-release
   footer: |
     ---
-    Install: `brew install benjaminabbitt/tap/ltk` (macOS),
+    Install: `brew install ctxloom/tap/ltk` (macOS),
     `go install github.com/benjaminabbitt/llm-tool-killer/cmd/ltk@{{ .Tag }}`,
     or download a binary above and run `ltk manage install`.
