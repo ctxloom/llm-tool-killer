@@ -70,9 +70,6 @@ func TestQuotedArgument(t *testing.T) {
 	if !reflect.DeepEqual(c.Argv, []string{"cmd", "/c", "git tag v1"}) {
 		t.Errorf("argv = %v", c.Argv)
 	}
-	if !s.Flags.Wrapper {
-		t.Error("cmd /c should set Wrapper")
-	}
 }
 
 func TestCaretEscapeNotAnOperator(t *testing.T) {
@@ -83,14 +80,11 @@ func TestCaretEscapeNotAnOperator(t *testing.T) {
 	}
 }
 
-func TestPercentExpansionIsDynamic(t *testing.T) {
+func TestPercentExpansionKeptLiteral(t *testing.T) {
 	s := parse(t, "echo %PATH%")
 	c := s.Pipelines[0].Commands[0]
 	if !reflect.DeepEqual(c.Argv, []string{"echo", "%PATH%"}) {
-		t.Errorf("argv = %v", c.Argv)
-	}
-	if !s.Flags.DynamicExpansion {
-		t.Error("%VAR% should set DynamicExpansion")
+		t.Errorf("argv = %v (%%VAR%% kept literal; cmd resolution out of scope)", c.Argv)
 	}
 }
 

@@ -68,19 +68,6 @@ func TestProgramAndArgs(t *testing.T) {
 	}
 }
 
-func TestOpacityFlags(t *testing.T) {
-	if (OpacityFlags{}).Any() {
-		t.Error("zero flags should report Any()=false")
-	}
-	merged := OpacityFlags{HasEval: true}.Merge(OpacityFlags{Wrapper: true})
-	if !merged.HasEval || !merged.Wrapper {
-		t.Errorf("Merge lost a flag: %+v", merged)
-	}
-	if !merged.Any() {
-		t.Error("merged flags should report Any()=true")
-	}
-}
-
 // nil receiver must be safe.
 func TestWalkNil(t *testing.T) {
 	var s *Script

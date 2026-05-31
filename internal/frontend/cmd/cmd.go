@@ -6,7 +6,8 @@
 //   - grouping: ( … ) (flattened — its commands are surfaced for matching)
 //   - quoting: "…" (one token; quotes stripped)
 //   - escaping: ^ (the next character is literal, incl. & | ( ) etc.)
-//   - variables: %VAR% (and "%VAR%") mark the token dynamic
+//   - variables: %VAR% is parsed as part of the word (not expanded — cmd value
+//     resolution is out of scope; see shell for variable resolution)
 //   - redirections: >, >>, <, 2>, 2>&1 (consumed, kept off argv)
 //
 // Control-flow keywords (for/if/do/else) are surfaced as ordinary command words
@@ -18,7 +19,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
 	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
@@ -31,15 +31,11 @@ func New() *Frontend { return &Frontend{} }
 // Shells reports the dialects handled by this frontend.
 func (f *Frontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellCmd} }
 
-// Parse lowers src into a Script. It is best-effort and never errors; constructs
-// it cannot model set the Unparsed opacity flag.
+// Parse lowers src into a Script. It is best-effort and never errors.
 func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
 	p := &parser{toks: lex(src)}
 	pipelines := p.parseSequence()
-	if p.pos < len(p.toks) {
-		p.flags.Unparsed = true // leftover tokens (e.g. an unmatched ')')
-	}
-	return &ir.Script{Shell: shell, Pipelines: pipelines, Flags: p.flags}, nil
+	return &ir.Script{Shell: shell, Pipelines: pipelines}, nil
 }
 
 // --- lexer ---
@@ -58,9 +54,8 @@ const (
 )
 
 type tok struct {
-	kind    tkind
-	text    string
-	dynamic bool // word contained %VAR% expansion
+	kind tkind
+	text string
 }
 
 func lex(s string) []tok {
@@ -73,15 +68,14 @@ type lexer struct {
 	i       int
 	toks    []tok
 	buf     strings.Builder
-	dynamic bool
 	hasWord bool
 }
 
 func (l *lexer) flush() {
 	if l.hasWord {
-		l.toks = append(l.toks, tok{kind: tWord, text: l.buf.String(), dynamic: l.dynamic})
+		l.toks = append(l.toks, tok{kind: tWord, text: l.buf.String()})
 		l.buf.Reset()
-		l.dynamic, l.hasWord = false, false
+		l.hasWord = false
 	}
 }
 
@@ -156,15 +150,15 @@ func (l *lexer) lexQuoted() {
 	}
 }
 
-// lexPercent consumes a %VAR% run into the current word, marking it dynamic.
-// Returns false (consuming nothing) if there is no closing %.
+// lexPercent consumes a %VAR% run into the current word (kept literally; cmd
+// value resolution is out of scope). Returns false if there is no closing %.
 func (l *lexer) lexPercent() bool {
 	j := strings.IndexByte(l.s[l.i+1:], '%')
 	if j < 0 {
 		return false
 	}
 	l.buf.WriteString(l.s[l.i : l.i+j+2])
-	l.dynamic, l.hasWord = true, true
+	l.hasWord = true
 	l.i += j + 2
 	return true
 }
@@ -184,7 +178,7 @@ func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, single
 // lexRedir reads a redirection operator, dropping any file-descriptor prefix
 // (e.g. the 2 in 2>) so it does not leak into argv.
 func (l *lexer) lexRedir() {
-	if l.hasWord && isDigits(l.buf.String()) && !l.dynamic {
+	if l.hasWord && isDigits(l.buf.String()) {
 		l.buf.Reset()
 		l.hasWord = false
 	} else {
@@ -219,9 +213,8 @@ func isDigits(s string) bool {
 // --- parser ---
 
 type parser struct {
-	toks  []tok
-	pos   int
-	flags ir.OpacityFlags
+	toks []tok
+	pos  int
 }
 
 func (p *parser) peek() (tok, bool) {
@@ -267,8 +260,6 @@ func (p *parser) parsePipeline(conn ir.Connector) []ir.Pipeline {
 		inner := p.parseSequence()
 		if t2, ok := p.peek(); ok && t2.kind == tRParen {
 			p.pos++
-		} else {
-			p.flags.Unparsed = true
 		}
 		p.skipRedirs() // trailing redirs on the group, e.g. (...) > file
 		return inner
@@ -302,9 +293,6 @@ func (p *parser) parseSimpleCommand() (ir.SimpleCommand, bool) {
 		switch t.kind {
 		case tWord:
 			sc.Argv = append(sc.Argv, t.text)
-			if t.dynamic {
-				p.flags.DynamicExpansion = true
-			}
 			got = true
 			p.pos++
 		case tRedir:
@@ -316,14 +304,8 @@ func (p *parser) parseSimpleCommand() (ir.SimpleCommand, bool) {
 			}
 			sc.Redirects = append(sc.Redirects, ir.Redirect{Op: t.text, Target: target})
 		default:
-			if got {
-				p.detectOpacity(&sc)
-			}
 			return sc, got
 		}
-	}
-	if got {
-		p.detectOpacity(&sc)
 	}
 	return sc, got
 }
@@ -340,15 +322,4 @@ func (p *parser) skipRedirs() {
 			p.pos++ // target
 		}
 	}
-}
-
-// cmd shell wrappers for opacity detection: cmd /c and cross-called pwsh -Command.
-var cmdWrappers = []frontend.WrapperSpec{
-	{Programs: []string{"cmd", "cmd.exe"}, Flags: []string{"/c", "/k"}},
-	{Programs: []string{"powershell", "powershell.exe", "pwsh", "pwsh.exe"}, Flags: []string{"-command", "-c", "-encodedcommand"}},
-}
-
-// detectOpacity flags cmd's shell wrappers (cmd /c, and cross-called pwsh -Command).
-func (p *parser) detectOpacity(sc *ir.SimpleCommand) {
-	frontend.ApplyOpacity(&p.flags, *sc, nil, cmdWrappers...)
 }

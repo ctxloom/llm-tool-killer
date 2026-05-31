@@ -13,8 +13,8 @@ type Decision struct {
 
 // Evaluate matches every command in the script (nested included) against the
 // rules in order. The first matching deny rule wins. A matching allow rule
-// clears the current command without denying it. If no rule denies, the opacity
-// policy is applied as the adversarial seam.
+// clears the current command without denying it; if nothing denies, the command
+// is allowed.
 func Evaluate(cfg *Config, script *ir.Script) Decision {
 	if script == nil {
 		return Decision{Allowed: true}
@@ -45,13 +45,6 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 	})
 	if denied {
 		return decision
-	}
-
-	if cfg.Defaults.OnOpaque == ActionDeny && script.Flags.Any() {
-		return Decision{
-			Allowed: false,
-			Reason:  "command contains constructs that cannot be statically analyzed (" + opaqueDesc(script.Flags) + ")",
-		}
 	}
 	return Decision{Allowed: true}
 }

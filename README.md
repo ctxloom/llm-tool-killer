@@ -137,10 +137,19 @@ The complexity gate uses [`gocyclo`](https://github.com/fzipp/gocyclo), pinned
 via a `go.mod` tool directive (`go tool gocyclo`), so it needs no separate
 install and tracks the toolchain.
 
-## Scope
+## Scope — read this
 
-This is a **cooperative guardrail**, not a sandbox. A static parser can't
-soundly resolve `eval`, dynamic expansion, or `bash -c "$VAR"` without executing
-them. Those constructs are flagged, and `defaults.on_opaque: deny` lets you turn
-the screws (deny anything that can't be statically analyzed) when you want to
-harden — but for hard isolation, use OS-level sandboxing.
+`ltk` is **not a hard compliance control, and not a sandbox.** It's a cooperative
+helper that redirects the LLM away from operations you'd **rather it not do** —
+not operations it must *never, under any circumstances* be able to do.
+
+If you tell the LLM to work around a rule, **it will** — by writing and compiling
+equivalent code, downloading the blocked tool and recompiling it under a
+different output name, creating a symlink, or any of a hundred other paths. `ltk`
+understands *trivial* workarounds (shell wrappers like `bash -c`/`eval`, and
+statically-resolvable variables) and matches the real command behind them; it
+makes no claim beyond that. Deeper intent-based detection (re-implementation,
+recompile-and-rename) is aspirational and may never be feasible.
+
+**If you have "never-ever" requirements, run the agent in a sandbox / container.**
+That is the right tool for hard isolation; `ltk` is not.

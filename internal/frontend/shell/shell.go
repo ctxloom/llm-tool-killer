@@ -5,23 +5,39 @@
 // sequencing, nesting) and the words of each command, but collapses control
 // flow. Compound commands (if/for/while/case/functions) are flattened to the
 // commands they contain so rules still match programs buried inside them.
+//
+// Words are expanded with mvdan.cc/sh's expand engine against a best-effort
+// environment — the process environment (the hook inherits the callee's env)
+// overlaid with assignments seen earlier in the same script. So `t=test; go $t`
+// and `$HOME/bin/x` resolve to their real commands; values we can't know
+// (command output, positional parameters) expand to empty and are simply not
+// matched. Command/process substitutions are not executed: their bodies are
+// captured as nested scripts (so rules still see the commands inside) and they
+// expand to empty.
 package shell
 
 import (
 	"context"
+	"io"
+	"os"
 	"strings"
 
+	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
 	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
 // Frontend lowers POSIX-family shell into IR.
-type Frontend struct{}
+type Frontend struct {
+	// env is the base environment for variable resolution. Defaults to the
+	// process environment; a zero Frontend resolves no variables.
+	env map[string]string
+}
 
-// New returns a shell Frontend.
-func New() *Frontend { return &Frontend{} }
+// New returns a shell Frontend that resolves variables against the process
+// environment (which the hook inherits from the command it is guarding).
+func New() *Frontend { return &Frontend{env: envMap(os.Environ())} }
 
 // Shells reports the dialects handled by this frontend.
 func (f *Frontend) Shells() []ir.Shell {
@@ -41,25 +57,29 @@ func variantFor(sh ir.Shell) syntax.LangVariant {
 	}
 }
 
-// Parse lowers src into a Script.
+// Parse lowers src into a Script. On a parse error it returns a non-nil (empty)
+// script alongside the error, so the caller can apply its on_parse_error policy.
 func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
 	parser := syntax.NewParser(syntax.Variant(variantFor(shell)))
 	file, err := parser.Parse(strings.NewReader(src), "")
 	if err != nil {
-		return &ir.Script{Shell: shell, Flags: ir.OpacityFlags{Unparsed: true}}, err
+		return &ir.Script{Shell: shell}, err
 	}
-	l := &lowerer{shell: shell, printer: syntax.NewPrinter()}
-	script := &ir.Script{Shell: shell}
-	script.Pipelines = l.lowerStmts(file.Stmts)
-	script.Flags = l.flags
-	return script, nil
+	l := &lowerer{
+		shell:   shell,
+		printer: syntax.NewPrinter(),
+		base:    f.env,
+		vars:    map[string]string{},
+	}
+	return &ir.Script{Shell: shell, Pipelines: l.lowerStmts(file.Stmts)}, nil
 }
 
-// lowerer accumulates opacity flags as it walks the AST.
+// lowerer walks the AST, tracking variable assignments for expansion.
 type lowerer struct {
 	shell   ir.Shell
 	printer *syntax.Printer
-	flags   ir.OpacityFlags
+	base    map[string]string // process env (read-only)
+	vars    map[string]string // assignments seen so far in this script
 }
 
 func (l *lowerer) lowerStmts(stmts []*syntax.Stmt) []ir.Pipeline {
@@ -119,8 +139,8 @@ func (l *lowerer) lowerBinary(c *syntax.BinaryCmd, st *syntax.Stmt, conn ir.Conn
 	}
 }
 
-// lowerCompound handles a compound command (if/for/while/case/function/...) or
-// a construct we don't model: it walks the node to surface every simple command
+// lowerCompound handles a compound command (if/for/while/case/function/...) or a
+// construct we don't model: it walks the node to surface every simple command
 // inside so rules still match, stopping at each call we capture (lowerCall
 // already pulls in any nested substitutions).
 func (l *lowerer) lowerCompound(cmd syntax.Command) []ir.Pipeline {
@@ -136,9 +156,6 @@ func (l *lowerer) lowerCompound(cmd syntax.Command) []ir.Pipeline {
 		})
 		return false
 	})
-	if len(out) == 0 {
-		l.flags.Unparsed = true
-	}
 	return out
 }
 
@@ -163,87 +180,110 @@ func (l *lowerer) pipeSide(st *syntax.Stmt) []ir.SimpleCommand {
 
 func (l *lowerer) lowerCall(c *syntax.CallExpr, st *syntax.Stmt) ir.SimpleCommand {
 	sc := ir.SimpleCommand{}
+	cfg := l.expandConfig(&sc)
 	for _, a := range c.Assigns {
 		name := ""
 		if a.Name != nil {
 			name = a.Name.Value
 		}
-		sc.Assignments = append(sc.Assignments, ir.Assignment{Name: name, Value: l.word(&sc, a.Value)})
+		sc.Assignments = append(sc.Assignments, ir.Assignment{Name: name, Value: l.literal(cfg, a.Value)})
 	}
-	for _, w := range c.Args {
-		sc.Argv = append(sc.Argv, l.word(&sc, w))
+	// Expand args as the shell would build argv: field-split, with empty
+	// unquoted expansions dropped (so an unset `$X` disappears rather than
+	// leaving a stray empty argument).
+	if argv, err := expand.Fields(cfg, c.Args...); err == nil {
+		sc.Argv = argv
+	} else {
+		sc.Argv = argvFallback(c.Args)
 	}
 	if st != nil {
 		for _, r := range st.Redirs {
-			sc.Redirects = append(sc.Redirects, ir.Redirect{
-				Op:     r.Op.String(),
-				Target: l.word(&sc, r.Word),
-			})
+			sc.Redirects = append(sc.Redirects, ir.Redirect{Op: r.Op.String(), Target: l.literal(cfg, r.Word)})
 		}
 	}
 	sc.Raw = l.render(c)
-	l.detectOpacity(sc)
+	// A pure assignment (no program word) updates the environment that later
+	// commands in this script expand against, e.g. `t=test; go $t`.
+	if len(c.Args) == 0 {
+		for _, a := range sc.Assignments {
+			if a.Name != "" {
+				l.vars[a.Name] = a.Value
+			}
+		}
+	}
 	return sc
 }
 
-// shell eval/wrapper programs for opacity detection.
-var (
-	shEvalPrograms = []string{"eval"}
-	shWrappers     = []frontend.WrapperSpec{{
-		Programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"},
-		Flags:    []string{"-c"},
-	}}
-)
-
-// detectOpacity sets argv-derived flags (eval, sh/bash -c wrappers).
-func (l *lowerer) detectOpacity(sc ir.SimpleCommand) {
-	frontend.ApplyOpacity(&l.flags, sc, shEvalPrograms, shWrappers...)
+// expandConfig builds an expand.Config bound to sc: variables resolve from the
+// environment, and command/process substitutions are captured into sc.Nested
+// (never executed) and expand to empty.
+func (l *lowerer) expandConfig(sc *ir.SimpleCommand) *expand.Config {
+	return &expand.Config{
+		Env: l.environ(),
+		CmdSubst: func(_ io.Writer, cs *syntax.CmdSubst) error {
+			l.addNested(sc, cs.Stmts)
+			return nil
+		},
+		ProcSubst: func(ps *syntax.ProcSubst) (string, error) {
+			l.addNested(sc, ps.Stmts)
+			return "", nil
+		},
+	}
 }
 
-// word resolves a word to a best-effort literal string. Dynamic parts ($VAR,
-// arithmetic) resolve to "" and set DynamicExpansion; command/process
-// substitutions additionally lower their bodies into sc.Nested.
-func (l *lowerer) word(sc *ir.SimpleCommand, w *syntax.Word) string {
+// environ resolves variable names from in-script assignments first, then the
+// process environment.
+func (l *lowerer) environ() expand.Environ {
+	return expand.FuncEnviron(func(name string) string {
+		if v, ok := l.vars[name]; ok {
+			return v
+		}
+		return l.base[name]
+	})
+}
+
+// literal expands a single word (used for assignment values and redirect
+// targets, which are not field-split), falling back to the literal text on error.
+func (l *lowerer) literal(cfg *expand.Config, w *syntax.Word) string {
 	if w == nil {
 		return ""
 	}
+	out, err := expand.Literal(cfg, w)
+	if err != nil {
+		return literalFallback(w)
+	}
+	return out
+}
+
+func (l *lowerer) addNested(sc *ir.SimpleCommand, stmts []*syntax.Stmt) {
+	sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.lowerStmts(stmts)})
+}
+
+// literalFallback concatenates the literal parts of a word, used only when
+// expansion errors.
+func literalFallback(w *syntax.Word) string {
 	var b strings.Builder
 	for _, part := range w.Parts {
-		b.WriteString(l.wordPart(sc, part))
+		switch p := part.(type) {
+		case *syntax.Lit:
+			b.WriteString(p.Value)
+		case *syntax.SglQuoted:
+			b.WriteString(p.Value)
+		}
 	}
 	return b.String()
 }
 
-func (l *lowerer) wordPart(sc *ir.SimpleCommand, part syntax.WordPart) string {
-	switch p := part.(type) {
-	case *syntax.Lit:
-		return p.Value
-	case *syntax.SglQuoted:
-		return p.Value
-	case *syntax.DblQuoted:
-		var b strings.Builder
-		for _, ip := range p.Parts {
-			b.WriteString(l.wordPart(sc, ip))
+// argvFallback builds argv from literal word text when field expansion errors,
+// dropping words that resolve to empty.
+func argvFallback(words []*syntax.Word) []string {
+	var out []string
+	for _, w := range words {
+		if s := literalFallback(w); s != "" {
+			out = append(out, s)
 		}
-		return b.String()
-	case *syntax.ParamExp:
-		l.flags.DynamicExpansion = true
-		return ""
-	case *syntax.CmdSubst:
-		l.flags.DynamicExpansion = true
-		sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.lowerStmts(p.Stmts)})
-		return ""
-	case *syntax.ProcSubst:
-		l.flags.DynamicExpansion = true
-		sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.lowerStmts(p.Stmts)})
-		return ""
-	case *syntax.ArithmExp:
-		l.flags.DynamicExpansion = true
-		return ""
-	default:
-		l.flags.Unparsed = true
-		return ""
 	}
+	return out
 }
 
 func (l *lowerer) render(n syntax.Node) string {
@@ -252,4 +292,15 @@ func (l *lowerer) render(n syntax.Node) string {
 		return ""
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// envMap turns "K=V" pairs into a map.
+func envMap(pairs []string) map[string]string {
+	m := make(map[string]string, len(pairs))
+	for _, kv := range pairs {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			m[k] = v
+		}
+	}
+	return m
 }

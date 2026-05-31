@@ -6,11 +6,8 @@
 version: 1
 
 defaults:
-  # What to do with commands that can't be statically analyzed (eval, $(...),
-  # `bash -c`, unparsed dialects). `allow` keeps cooperative behavior; switch to
-  # `deny` to harden against evasion later.
-  on_opaque: allow
-  # What to do when a command can't be parsed at all (incl. pwsh/cmd stubs).
+  # What to do when a command can't be parsed at all (e.g. PowerShell absent).
+  # allow = fail-open (cooperative default); deny = fail-closed.
   on_parse_error: allow
 
 rules:

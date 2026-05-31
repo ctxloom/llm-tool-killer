@@ -77,13 +77,17 @@ func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
 
 	script, err := a.Registry.Parse(ctx, shell, command)
 	if err != nil {
-		// Unsupported shell, parse error, or a not-yet-implemented frontend
-		// (pwsh/cmd). Apply the on_parse_error policy — pass-through by default.
+		// Unsupported shell or parse error. Apply the on_parse_error policy —
+		// pass-through by default.
 		if a.Config.Defaults.OnParseError == rules.ActionDeny {
 			return engine.Response{Allow: false, Reason: "could not analyze command (" + err.Error() + ")"}
 		}
 		return engine.Response{Allow: true}
 	}
+
+	// Understand trivial wrappers (bash -c "…", eval "…", …) by re-parsing their
+	// inner command, so a denied command can't be smuggled past a rule.
+	a.Registry.ExpandWrappers(ctx, script)
 
 	d := rules.Evaluate(a.Config, script)
 	return engine.Response{Allow: d.Allowed, Reason: d.Reason, Suggest: d.Suggest}

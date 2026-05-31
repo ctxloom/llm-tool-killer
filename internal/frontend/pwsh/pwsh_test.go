@@ -35,9 +35,6 @@ func TestLowerSimpleCommand(t *testing.T) {
 	if c.Program() != "go" || len(c.Argv) != 2 || c.Argv[1] != "test" {
 		t.Errorf("argv = %v", c.Argv)
 	}
-	if s.Flags.Any() {
-		t.Errorf("clean command should have no opacity flags: %+v", s.Flags)
-	}
 }
 
 func TestLowerFlattensNestedCommands(t *testing.T) {
@@ -54,33 +51,6 @@ func TestLowerFlattensNestedCommands(t *testing.T) {
 	if len(progs) != 2 || progs[1] != "Remove-Item" {
 		t.Errorf("programs = %v, want [Write-Host Remove-Item]", progs)
 	}
-	if !s.Flags.DynamicExpansion {
-		t.Error("a $(...) element should set DynamicExpansion")
-	}
-}
-
-func TestLowerWrapperFlag(t *testing.T) {
-	f := fake(`{"commands":[{"argv":[{"k":"lit","v":"pwsh"},{"k":"param","v":"-Command"},{"k":"dyn","v":"\"gci\""}]}],"hasErrors":false}`)
-	s := parse(t, f, "pwsh -Command \"gci\"")
-	if !s.Flags.Wrapper {
-		t.Error("pwsh -Command should set Wrapper")
-	}
-}
-
-func TestLowerEvalFlag(t *testing.T) {
-	f := fake(`{"commands":[{"argv":[{"k":"lit","v":"iex"},{"k":"dyn","v":"$cmd"}]}],"hasErrors":false}`)
-	s := parse(t, f, "iex $cmd")
-	if !s.Flags.HasEval {
-		t.Error("iex should set HasEval")
-	}
-}
-
-func TestLowerParseErrorsSetUnparsed(t *testing.T) {
-	f := fake(`{"commands":[],"hasErrors":true}`)
-	s := parse(t, f, "Get-")
-	if !s.Flags.Unparsed {
-		t.Error("hasErrors should set Unparsed")
-	}
 }
 
 func TestRunnerErrorPropagates(t *testing.T) {
@@ -90,8 +60,8 @@ func TestRunnerErrorPropagates(t *testing.T) {
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v, want boom", err)
 	}
-	if s == nil || !s.Flags.Unparsed {
-		t.Errorf("on runner error want flagged script, got %+v", s)
+	if s == nil {
+		t.Error("on runner error want a non-nil script")
 	}
 }
 

@@ -85,10 +85,7 @@ func TestPipeline(t *testing.T) {
 func TestCommandSubstitutionNested(t *testing.T) {
 	s := parse(t, ir.ShellBash, "echo $(go build ./...)")
 	if got := programs(s); !reflect.DeepEqual(got, []string{"echo", "go"}) {
-		t.Fatalf("programs = %v, want [echo go]", got)
-	}
-	if !s.Flags.DynamicExpansion {
-		t.Error("command substitution should set DynamicExpansion")
+		t.Fatalf("programs = %v, want [echo go] (command substitution captured as nested)", got)
 	}
 }
 
@@ -96,9 +93,6 @@ func TestBacktickSubstitutionNested(t *testing.T) {
 	s := parse(t, ir.ShellBash, "echo `go build`")
 	if got := programs(s); !reflect.DeepEqual(got, []string{"echo", "go"}) {
 		t.Fatalf("programs = %v, want [echo go]", got)
-	}
-	if !s.Flags.DynamicExpansion {
-		t.Error("backtick substitution should set DynamicExpansion")
 	}
 }
 
@@ -145,24 +139,30 @@ func TestCompoundCommandFindsInnerCommands(t *testing.T) {
 	}
 }
 
-func TestEvalFlag(t *testing.T) {
-	s := parse(t, ir.ShellBash, `eval "go test"`)
-	if !s.Flags.HasEval {
-		t.Error("eval should set HasEval")
+func TestVariableResolutionFromScript(t *testing.T) {
+	// An in-script assignment resolves in later commands.
+	s := parse(t, ir.ShellBash, "t=test; go $t ./...")
+	c := s.Pipelines[len(s.Pipelines)-1].Commands[0]
+	if !reflect.DeepEqual(c.Argv, []string{"go", "test", "./..."}) {
+		t.Errorf("argv = %v, want [go test ./...] ($t resolved from assignment)", c.Argv)
 	}
 }
 
-func TestWrapperFlag(t *testing.T) {
-	s := parse(t, ir.ShellBash, `bash -c "go test"`)
-	if !s.Flags.Wrapper {
-		t.Error("bash -c should set Wrapper")
-	}
-}
-
-func TestDynamicExpansionFlag(t *testing.T) {
+func TestVariableResolutionFromEnv(t *testing.T) {
+	t.Setenv("SUBCMD", "test")
 	s := parse(t, ir.ShellBash, "go $SUBCMD")
-	if !s.Flags.DynamicExpansion {
-		t.Error("$VAR should set DynamicExpansion")
+	c := s.Pipelines[0].Commands[0]
+	if !reflect.DeepEqual(c.Argv, []string{"go", "test"}) {
+		t.Errorf("argv = %v, want [go test] ($SUBCMD from env)", c.Argv)
+	}
+}
+
+func TestUnknownVariableResolvesEmpty(t *testing.T) {
+	s := parse(t, ir.ShellBash, "go $NOPE_UNDEFINED")
+	c := s.Pipelines[0].Commands[0]
+	// $NOPE_UNDEFINED expands to "" and drops out of argv (not blocked).
+	if !reflect.DeepEqual(c.Argv, []string{"go"}) {
+		t.Errorf("argv = %v, want [go] (unknown var → empty)", c.Argv)
 	}
 }
 
@@ -182,12 +182,12 @@ func TestShellsCovered(t *testing.T) {
 	}
 }
 
-func TestParseErrorReturnsFlaggedScript(t *testing.T) {
+func TestParseErrorReturnsNonNilScript(t *testing.T) {
 	s, err := New().Parse(context.Background(), ir.ShellBash, "for do done $(")
 	if err == nil {
 		t.Skip("input parsed without error; nothing to assert")
 	}
-	if s == nil || !s.Flags.Unparsed {
-		t.Errorf("on parse error want non-nil script with Unparsed flag, got %+v", s)
+	if s == nil {
+		t.Error("on parse error want a non-nil script alongside the error")
 	}
 }

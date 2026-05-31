@@ -18,8 +18,7 @@ version: 1
 
 defaults:
   shell: bash            # fallback dialect (see Shell resolution in ARCHITECTURE.md)
-  on_opaque: allow       # eval / $(...) / bash -c / unparsed → allow | deny
-  on_parse_error: allow  # command couldn't be parsed → allow | deny
+  on_parse_error: allow  # command couldn't be parsed at all → allow (fail-open) | deny
 
 rules:
   - id: go-test-to-just            # required, unique
@@ -105,10 +104,21 @@ shell `/usr/bin/x` is a path — so the same leading-`/` token is an option in o
 and positional in the other. Restrict a rule to specific shells with
 `match.shells: [cmd]` when needed.
 
-## Opacity (the "adversarial later" seam)
+## Understanding (catching trivial workarounds)
 
-Constructs that can't be statically resolved — `eval`, `bash -c` wrappers,
-dynamic expansion (`$VAR`, `$(...)`), or anything the frontend couldn't parse —
-are flagged. `defaults.on_opaque` decides what happens when no rule matched but
-such a construct is present: `allow` (cooperative default) or `deny` (harden).
-This is the single switch that tightens against evasion without touching rules.
+We don't block on "scary" constructs — we **understand** them. Before matching,
+a command is resolved as far as is statically possible, so an LLM can't sneak a
+denied command past a rule with a trivial wrapper or a variable:
+
+- **Variable resolution (shell).** Variable dereferences are expanded against the
+  process environment (the hook inherits the callee's env) plus assignments seen
+  earlier in the same command. So `t=test; go $t` and `CMD="go test"; bash -c
+  "$CMD"` match the `go test` rule. Values we can't know (command output, `$1`)
+  expand to empty and are simply not matched.
+- **Wrapper re-parsing.** The inner command of a trivial wrapper —
+  `bash -c "…"`, `sh -c "…"`, `eval "…"`, `cmd /c "…"`, `pwsh -Command "…"` — is
+  re-parsed and matched, so the stated replacement still holds.
+
+This is **not** a security boundary. If an LLM is told to work around a rule it
+can rewrite the tool, recompile it under another name, symlink it, etc. — see
+the README "Scope" section. For hard limits, run the agent in a sandbox.

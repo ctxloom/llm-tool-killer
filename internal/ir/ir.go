@@ -45,10 +45,6 @@ const (
 type Script struct {
 	Shell     Shell
 	Pipelines []Pipeline
-	// Flags records constructs that could not be statically resolved. They are
-	// computed eagerly but ignored by the cooperative evaluator; they are the
-	// seam where adversarial hardening plugs in later.
-	Flags OpacityFlags
 }
 
 // Pipeline is one or more simple commands joined by "|".
@@ -94,31 +90,6 @@ type Assignment struct {
 type Redirect struct {
 	Op     string
 	Target string
-}
-
-// OpacityFlags mark constructs that cannot be statically resolved without
-// executing the command. The cooperative evaluator ignores these; an
-// adversarial policy can be configured to treat any set flag as a denial.
-type OpacityFlags struct {
-	HasEval          bool // an `eval` invocation is present
-	DynamicExpansion bool // $VAR, $(...), arithmetic, etc. affected resolution
-	Wrapper          bool // a `sh -c`/`bash -c`-style wrapper is present
-	Unparsed         bool // a construct the frontend could not lower
-}
-
-// Any reports whether any opacity flag is set.
-func (f OpacityFlags) Any() bool {
-	return f.HasEval || f.DynamicExpansion || f.Wrapper || f.Unparsed
-}
-
-// Merge returns the union of two flag sets.
-func (f OpacityFlags) Merge(o OpacityFlags) OpacityFlags {
-	return OpacityFlags{
-		HasEval:          f.HasEval || o.HasEval,
-		DynamicExpansion: f.DynamicExpansion || o.DynamicExpansion,
-		Wrapper:          f.Wrapper || o.Wrapper,
-		Unparsed:         f.Unparsed || o.Unparsed,
-	}
 }
 
 // Walk visits every SimpleCommand in the script in source (pre-)order,

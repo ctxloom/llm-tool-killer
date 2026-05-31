@@ -9,8 +9,7 @@ const StarterConfig = `# llm-tool-killer rules — restrict casual LLM tool use 
 version: 1
 
 defaults:
-  on_opaque: allow       # eval / $(...) / wrappers: allow (cooperative) | deny (harden)
-  on_parse_error: allow
+  on_parse_error: allow  # if a command can't be parsed at all: allow (fail-open) | deny
 
 rules:
   - id: no-git-tag

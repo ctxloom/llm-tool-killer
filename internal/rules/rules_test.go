@@ -8,8 +8,6 @@ import (
 
 const sampleYAML = `
 version: 1
-defaults:
-  on_opaque: allow
 rules:
   - id: go-test-to-just
     match: { command: [go, test] }
@@ -114,20 +112,6 @@ rules:
 	}
 	if d := Evaluate(cfg, cmd(ir.ShellCmd, "foo")); d.Allowed {
 		t.Error("foo on cmd should be denied")
-	}
-}
-
-func TestOpaquePolicy(t *testing.T) {
-	opaque := &ir.Script{Shell: ir.ShellBash, Flags: ir.OpacityFlags{HasEval: true}}
-
-	allowCfg := mustParse(t, "version: 1\ndefaults: { on_opaque: allow }\nrules: []\n")
-	if d := Evaluate(allowCfg, opaque); !d.Allowed {
-		t.Error("opaque should be allowed under default policy")
-	}
-
-	denyCfg := mustParse(t, "version: 1\ndefaults: { on_opaque: deny }\nrules: []\n")
-	if d := Evaluate(denyCfg, opaque); d.Allowed {
-		t.Error("opaque should be denied when on_opaque: deny")
 	}
 }
 
@@ -245,7 +229,7 @@ func TestValidationErrors(t *testing.T) {
 		"empty match":         "version: 1\nrules:\n  - id: x\n    match: {}\n",
 		"empty command token": "version: 1\nrules:\n  - id: x\n    match: { command: [go, \"\"] }\n",
 		"duplicate id":        "version: 1\nrules:\n  - id: x\n    match: { command: a }\n  - id: x\n    match: { command: b }\n",
-		"bad default":         "version: 1\ndefaults: { on_opaque: maybe }\nrules: []\n",
+		"bad default":         "version: 1\ndefaults: { on_parse_error: maybe }\nrules: []\n",
 	}
 	for name, y := range cases {
 		if _, err := Parse([]byte(y)); err == nil {

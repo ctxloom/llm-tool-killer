@@ -93,6 +93,49 @@ func TestNestingIsCaught(t *testing.T) {
 	}
 }
 
+// TestWrapperUnderstanding proves trivial wrappers are re-parsed so a denied
+// command can't be smuggled through them.
+func TestWrapperUnderstanding(t *testing.T) {
+	a := newApp(t, cfg) // denies `go test`
+	denied := []string{
+		`bash -c "go test"`,         // re-parsed, inner matched
+		`sh -c "go test ./..."`,     // sh wrapper
+		`eval "go test"`,            // eval
+		`cd x && bash -c "go test"`, // wrapper inside a sequence
+	}
+	for _, c := range denied {
+		if decide(a, c).Allow {
+			t.Errorf("should be DENIED (wrapper hides `go test`): %q", c)
+		}
+	}
+	// We can't understand a dynamic inner command, so we don't block it.
+	if !decide(a, `bash -c "$UNDEFINED_CMD"`).Allow {
+		t.Error("dynamic wrapper inner should be allowed (not understood)")
+	}
+	if !decide(a, `bash -c "go build"`).Allow {
+		t.Error("wrapper running an allowed command should be allowed")
+	}
+}
+
+// TestVariableResolutionEndToEnd proves statically-known variables are resolved
+// so the real command is matched (including through a wrapper).
+func TestVariableResolutionEndToEnd(t *testing.T) {
+	a := newApp(t, cfg) // denies `go test`
+	if decide(a, "t=test; go $t").Allow {
+		t.Error("`t=test; go $t` should resolve to `go test` and be denied")
+	}
+	if decide(a, `CMD="go test"; bash -c "$CMD"`).Allow {
+		t.Error("`CMD=...; bash -c \"$CMD\"` should resolve then re-parse to `go test`")
+	}
+}
+
+func TestOnOpaqueIsGone(t *testing.T) {
+	// The opacity knob was removed; configuring it is now an unknown-field error.
+	if _, err := rules.Parse([]byte("version: 1\ndefaults: { on_opaque: deny }\nrules: []\n")); err == nil {
+		t.Error("defaults.on_opaque should now be rejected as an unknown field")
+	}
+}
+
 func TestEndToEndAllow(t *testing.T) {
 	a := newApp(t, cfg)
 	if !decide(a, "go build ./...").Allow {

@@ -21,7 +21,7 @@ it can retry the right way (e.g. "don't run `go test`, use `just test`").
             │ frontend.Registry  │  dispatch by shell → Frontend.Parse
             │  shell | pwsh | cmd│  lower to one IR
             └─────────┬──────────┘
-                      │  ir.Script (command graph + opacity flags)
+                      │  ir.Script (command graph)
             ┌─────────▼──────────┐
             │ rules.Evaluate     │  walk every command; first deny wins
             └─────────┬──────────┘
@@ -63,17 +63,26 @@ Rules are matched against the IR, never against raw text. The matching model —
 program/positional/option args and its cross-shell portability — is
 documented in [RULES.md](RULES.md).
 
-## Opacity flags (the "adversarial later" seam)
+## Understanding (catching trivial workarounds)
 
-The IR records constructs it can't statically resolve — `eval`, `bash -c`
-wrappers, dynamic expansion (`$VAR`, `$(...)`), unparsed forms. The cooperative
-evaluator ignores them. Setting `defaults.on_opaque: deny` turns them into
-denials. This is the single switch that hardens the tool against evasion without
-touching frontends or rules.
+Rather than block "scary" constructs, the pipeline *understands* them before
+matching:
 
-> Scope today is **cooperative** ("LLM wrangling"), not a security boundary. A
-> static parser cannot soundly resolve `eval`/dynamic expansion; the opacity
-> seam is how that gets tightened later.
+- **Variable resolution** (shell frontend, `mvdan.cc/sh/v3/expand`): words are
+  expanded against the process environment (the hook inherits the callee's env)
+  plus assignments seen earlier in the script, so `t=test; go $t` resolves to
+  `go test`. Command/process substitutions are captured as nested scripts (so
+  their commands are still matched) but never executed; unknown values expand to
+  empty and are not matched.
+- **Wrapper re-parsing** (`Registry.ExpandWrappers`): the inner command of a
+  trivial wrapper — `bash -c "…"`, `eval "…"`, `cmd /c "…"`, `pwsh -Command "…"` —
+  is re-parsed (by the inner shell, via the registry) into `Nested`, so a denied
+  command can't be smuggled through it. Bounded recursion handles nested wrappers.
+
+> Scope is **cooperative** ("LLM wrangling"), not a security boundary. If an agent
+> is told to evade a rule it can re-implement, recompile-and-rename, or symlink
+> the tool — see the README. Deeper intent-based detection is aspirational. For
+> hard isolation, run the agent in a sandbox/container.
 
 ---
 

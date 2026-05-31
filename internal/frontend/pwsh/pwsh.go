@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benjaminabbitt/llm-tool-killer/internal/frontend"
 	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
 )
 
@@ -47,7 +46,7 @@ $list=foreach($c in $cmds){
   }
   @{argv=@($argv)}
 }
-@{commands=@($list);hasErrors=($e.Count -gt 0)}|ConvertTo-Json -Depth 8 -Compress
+@{commands=@($list)}|ConvertTo-Json -Depth 8 -Compress
 `
 
 // Frontend lowers PowerShell into the IR.
@@ -69,7 +68,7 @@ func (f *Frontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellPwsh} }
 func (f *Frontend) Parse(ctx context.Context, shell ir.Shell, src string) (*ir.Script, error) {
 	out, err := f.run(ctx, src)
 	if err != nil {
-		return &ir.Script{Shell: shell, Flags: ir.OpacityFlags{Unparsed: true}}, err
+		return &ir.Script{Shell: shell}, err
 	}
 	return lower(out, shell)
 }
@@ -85,8 +84,7 @@ type psCommand struct {
 }
 
 type psResult struct {
-	Commands  []psCommand `json:"commands"`
-	HasErrors bool        `json:"hasErrors"`
+	Commands []psCommand `json:"commands"`
 }
 
 // lower maps the PowerShell parser's JSON into the IR. Every CommandAst becomes
@@ -95,40 +93,17 @@ type psResult struct {
 func lower(data []byte, shell ir.Shell) (*ir.Script, error) {
 	var r psResult
 	if err := json.Unmarshal(data, &r); err != nil {
-		return &ir.Script{Shell: shell, Flags: ir.OpacityFlags{Unparsed: true}},
-			fmt.Errorf("pwsh: decode parser output: %w", err)
+		return &ir.Script{Shell: shell}, fmt.Errorf("pwsh: decode parser output: %w", err)
 	}
 	script := &ir.Script{Shell: shell}
 	for _, c := range r.Commands {
 		sc := ir.SimpleCommand{}
 		for _, el := range c.Argv {
 			sc.Argv = append(sc.Argv, el.V)
-			if el.K == "dyn" {
-				script.Flags.DynamicExpansion = true
-			}
 		}
-		detectOpacity(&script.Flags, sc)
 		script.Pipelines = append(script.Pipelines, ir.Pipeline{Commands: []ir.SimpleCommand{sc}})
 	}
-	if r.HasErrors {
-		script.Flags.Unparsed = true
-	}
 	return script, nil
-}
-
-// PowerShell eval/wrapper programs for opacity detection.
-var (
-	pwshEvalPrograms = []string{"iex", "invoke-expression"}
-	pwshWrappers     = []frontend.WrapperSpec{{
-		Programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"},
-		Flags:    []string{"-command", "-c", "-encodedcommand"},
-	}}
-)
-
-// detectOpacity flags PowerShell's eval analog (Invoke-Expression/iex) and
-// shell wrappers (pwsh/powershell -Command).
-func detectOpacity(flags *ir.OpacityFlags, sc ir.SimpleCommand) {
-	frontend.ApplyOpacity(flags, sc, pwshEvalPrograms, pwshWrappers...)
 }
 
 var (

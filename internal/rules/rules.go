@@ -39,12 +39,8 @@ type Defaults struct {
 	// engine adapter could determine one. Empty means "no default" (the resolver
 	// then sniffs, finally falling back to bash).
 	Shell ir.Shell `yaml:"shell"`
-	// OnOpaque decides what to do when a command contains constructs that
-	// cannot be statically analyzed (eval, $(...), bash -c, unparsed). Default
-	// allow keeps cooperative behavior; set to deny to harden.
-	OnOpaque Action `yaml:"on_opaque"`
 	// OnParseError decides what to do when the frontend could not parse the
-	// command at all. Default allow.
+	// command at all (e.g. PowerShell not installed). Default allow (fail-open).
 	OnParseError Action `yaml:"on_parse_error"`
 }
 
@@ -248,14 +244,8 @@ func Load(pathname string) (*Config, error) {
 }
 
 func (c *Config) normalizeAndValidate() error {
-	if c.Defaults.OnOpaque == "" {
-		c.Defaults.OnOpaque = ActionAllow
-	}
 	if c.Defaults.OnParseError == "" {
 		c.Defaults.OnParseError = ActionAllow
-	}
-	if err := validAction(c.Defaults.OnOpaque); err != nil {
-		return fmt.Errorf("defaults.on_opaque: %w", err)
 	}
 	if err := validAction(c.Defaults.OnParseError); err != nil {
 		return fmt.Errorf("defaults.on_parse_error: %w", err)
@@ -307,21 +297,4 @@ func validAction(a Action) error {
 	default:
 		return fmt.Errorf("invalid action %q (want allow or deny)", a)
 	}
-}
-
-func opaqueDesc(f ir.OpacityFlags) string {
-	var parts []string
-	if f.HasEval {
-		parts = append(parts, "eval")
-	}
-	if f.Wrapper {
-		parts = append(parts, "shell -c wrapper")
-	}
-	if f.DynamicExpansion {
-		parts = append(parts, "dynamic expansion")
-	}
-	if f.Unparsed {
-		parts = append(parts, "unparsed construct")
-	}
-	return strings.Join(parts, ", ")
 }
