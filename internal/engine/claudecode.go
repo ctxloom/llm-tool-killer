@@ -97,6 +97,18 @@ func (ClaudeCode) Encode(resp Response) (Output, error) {
 // claudeMatcher is the PreToolUse matcher: the shell-bound tools.
 const claudeMatcher = "Bash|PowerShell"
 
+// Claude Code settings.json keys, used when merging/removing the hook in the
+// untyped JSON document. Kept as named constants so the merge and remove paths
+// (and the read-back checks) can never disagree on a key spelling.
+const (
+	keyHooks      = "hooks"
+	keyPreToolUse = "PreToolUse"
+	keyMatcher    = "matcher"
+	keyType       = "type"
+	keyCommand    = "command"
+	typeCommand   = "command" // value of the "type" field for a command hook
+)
+
 // Detect scores Claude Code's relevance by the presence of a .claude directory.
 func (ClaudeCode) Detect(dir string) int {
 	if fi, err := os.Stat(filepath.Join(dir, ".claude")); err == nil && fi.IsDir() {
@@ -143,24 +155,24 @@ func claudeMergeHook(existing []byte, matcher, command string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	hooks, err := childMap(settings, "hooks")
+	hooks, err := childMap(settings, keyHooks)
 	if err != nil {
 		return nil, err
 	}
-	pre, err := childSlice(hooks, "PreToolUse")
+	pre, err := childSlice(hooks, keyPreToolUse)
 	if err != nil {
 		return nil, err
 	}
 	if !preContainsCommand(pre, command) {
 		pre = append(pre, map[string]any{
-			"matcher": matcher,
-			"hooks": []any{
-				map[string]any{"type": "command", "command": command},
+			keyMatcher: matcher,
+			keyHooks: []any{
+				map[string]any{keyType: typeCommand, keyCommand: command},
 			},
 		})
 	}
-	hooks["PreToolUse"] = pre
-	settings["hooks"] = hooks
+	hooks[keyPreToolUse] = pre
+	settings[keyHooks] = hooks
 	return renderJSON(settings)
 }
 
@@ -171,24 +183,24 @@ func claudeRemoveHook(existing []byte, command string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	hooks, ok := settings["hooks"].(map[string]any)
+	hooks, ok := settings[keyHooks].(map[string]any)
 	if !ok {
 		return renderJSON(settings)
 	}
-	pre, ok := hooks["PreToolUse"].([]any)
+	pre, ok := hooks[keyPreToolUse].([]any)
 	if !ok {
 		return renderJSON(settings)
 	}
 	kept := removeCommandEntries(pre, command)
 	if len(kept) == 0 {
-		delete(hooks, "PreToolUse")
+		delete(hooks, keyPreToolUse)
 	} else {
-		hooks["PreToolUse"] = kept
+		hooks[keyPreToolUse] = kept
 	}
 	if len(hooks) == 0 {
-		delete(settings, "hooks")
+		delete(settings, keyHooks)
 	} else {
-		settings["hooks"] = hooks
+		settings[keyHooks] = hooks
 	}
 	return renderJSON(settings)
 }
@@ -203,7 +215,7 @@ func removeCommandEntries(pre []any, command string) []any {
 			kept = append(kept, e)
 			continue
 		}
-		hs, ok := em["hooks"].([]any)
+		hs, ok := em[keyHooks].([]any)
 		if !ok {
 			kept = append(kept, e)
 			continue
@@ -212,7 +224,7 @@ func removeCommandEntries(pre []any, command string) []any {
 		if len(keptHooks) == 0 {
 			continue // entry had only our hook → drop it
 		}
-		em["hooks"] = keptHooks
+		em[keyHooks] = keptHooks
 		kept = append(kept, em)
 	}
 	return kept
@@ -223,7 +235,7 @@ func filterOutCommand(hooks []any, command string) []any {
 	var kept []any
 	for _, h := range hooks {
 		if hm, ok := h.(map[string]any); ok {
-			if c, _ := hm["command"].(string); c == command {
+			if c, _ := hm[keyCommand].(string); c == command {
 				continue
 			}
 		}
@@ -280,13 +292,13 @@ func preContainsCommand(pre []any, command string) bool {
 		if !ok {
 			continue
 		}
-		hs, ok := em["hooks"].([]any)
+		hs, ok := em[keyHooks].([]any)
 		if !ok {
 			continue
 		}
 		for _, h := range hs {
 			if hm, ok := h.(map[string]any); ok {
-				if c, _ := hm["command"].(string); c == command {
+				if c, _ := hm[keyCommand].(string); c == command {
 					return true
 				}
 			}

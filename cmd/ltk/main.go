@@ -21,7 +21,7 @@ var Version = "dev"
 
 func main() {
 	root := &cobra.Command{
-		Use:           "ltk",
+		Use:           progName,
 		Short:         "Gate an LLM agent's shell commands via a pre-tool hook",
 		Version:       Version,
 		SilenceUsage:  true,
@@ -30,7 +30,7 @@ func main() {
 	root.AddCommand(newEvaluateCmd(), newManageCmd())
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "ltk:", err)
+		fmt.Fprintln(os.Stderr, progName+":", err)
 		os.Exit(1)
 	}
 }

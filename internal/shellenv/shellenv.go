@@ -14,8 +14,7 @@ import (
 // "/usr/bin/zsh") to a known Shell, or "" if it isn't one we parse.
 func ShellFromPath(shellPath string) ir.Shell {
 	name := strings.ToLower(filepath.Base(strings.TrimSpace(shellPath)))
-	// Drop a trailing version suffix like "bash5" is uncommon; handle the
-	// common interpreter names directly.
+	name = strings.TrimSuffix(name, ".exe") // so cmd.exe / pwsh.exe resolve too
 	switch name {
 	case "bash":
 		return ir.ShellBash
@@ -27,6 +26,8 @@ func ShellFromPath(shellPath string) ir.Shell {
 		return ir.ShellMksh
 	case "pwsh", "powershell":
 		return ir.ShellPwsh
+	case "cmd":
+		return ir.ShellCmd
 	default:
 		return ""
 	}

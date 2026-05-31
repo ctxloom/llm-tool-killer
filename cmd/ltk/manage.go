@@ -34,8 +34,8 @@ type manageFlags struct {
 func (f *manageFlags) bind(c *cobra.Command) {
 	c.Flags().StringVar(&f.engineName, "engine", "", "force an engine (default: auto-detect the most relevant)")
 	c.Flags().StringVar(&f.settingsPath, "settings", "", "explicit settings file path (overrides the engine default)")
-	c.Flags().StringVar(&f.bin, "bin", "ltk", "the ltk invocation the hook should run")
-	c.Flags().StringVar(&f.configPath, "config", ".ltk/config.yaml", "rules file the hook should use (\"\" to omit)")
+	c.Flags().StringVar(&f.bin, "bin", progName, "the ltk invocation the hook should run")
+	c.Flags().StringVar(&f.configPath, "config", defaultConfigPath, "rules file the hook should use (\"\" to omit)")
 	c.Flags().BoolVar(&f.global, "global", false, "target the user-level config instead of the project")
 	c.Flags().BoolVar(&f.printOnly, "print", false, "print the resulting config to stdout instead of writing")
 	c.Flags().BoolVar(&f.noDefaultRules, "no-default-rules", false, "scaffold an empty rules file instead of the shipped defaults")
@@ -98,7 +98,7 @@ func newInstallCmd() *cobra.Command {
 			if err := writeFile(path, merged); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "ltk: installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
+			fmt.Fprintf(os.Stderr, progName+": installed hook for %s\n  settings: %s\n  command:  %s\n", eng.Name(), path, command)
 			return nil
 		},
 	}
@@ -123,7 +123,7 @@ func newUninstallCmd() *cobra.Command {
 				return err
 			}
 			if existing == nil {
-				fmt.Fprintf(os.Stderr, "ltk: nothing to uninstall (%s not found)\n", path)
+				fmt.Fprintf(os.Stderr, progName+": nothing to uninstall (%s not found)\n", path)
 				return nil
 			}
 			updated, err := eng.Uninstall(existing, command)
@@ -137,7 +137,7 @@ func newUninstallCmd() *cobra.Command {
 			if err := writeFile(path, updated); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "ltk: removed hook for %s from %s\n", eng.Name(), path)
+			fmt.Fprintf(os.Stderr, progName+": removed hook for %s from %s\n", eng.Name(), path)
 			return nil
 		},
 	}
@@ -163,7 +163,7 @@ func scaffoldConfig(path string, withDefaults bool) error {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write rules file %s: %w", path, err)
 	}
-	fmt.Fprintf(os.Stderr, "ltk: wrote rules file %s (edit it to taste)\n", path)
+	fmt.Fprintf(os.Stderr, progName+": wrote rules file %s (edit it to taste)\n", path)
 	return nil
 }
 

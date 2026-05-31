@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/benjaminabbitt/llm-tool-killer/internal/ir"
+	"github.com/benjaminabbitt/llm-tool-killer/internal/shellenv"
 )
 
 // maxWrapDepth bounds how deep ExpandWrappers re-parses nested wrappers
@@ -107,24 +108,15 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 	return "", false
 }
 
-// innerShell maps a wrapper program to the shell its inner command is written in.
+// innerShell maps a wrapper program to the shell its inner command is written
+// in. It reuses shellenv's basename→Shell mapping (the same logic that resolves
+// $SHELL), so the dialect table lives in one place; eval and anything shellenv
+// doesn't recognize run in the surrounding shell.
 func innerShell(prog string, outer ir.Shell) ir.Shell {
-	switch prog {
-	case "sh", "dash", "ash":
-		return ir.ShellSh
-	case "bash":
-		return ir.ShellBash
-	case "zsh":
-		return ir.ShellZsh
-	case "ksh", "mksh":
-		return ir.ShellMksh
-	case "cmd", "cmd.exe":
-		return ir.ShellCmd
-	case "pwsh", "powershell", "pwsh.exe", "powershell.exe":
-		return ir.ShellPwsh
-	default: // eval and anything else runs in the surrounding shell
-		return outer
+	if s := shellenv.ShellFromPath(prog); s != "" {
+		return s
 	}
+	return outer
 }
 
 func containsFold(list []string, s string) bool {

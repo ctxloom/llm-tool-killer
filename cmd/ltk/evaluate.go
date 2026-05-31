@@ -23,8 +23,8 @@ import (
 // (config + override state together) is preferred; the flat .ltk.yaml is kept
 // for back-compat.
 var configSearch = []string{
-	".ltk/config.yaml",
-	".ltk.yaml",
+	defaultConfigPath, // .ltk/config.yaml
+	legacyConfig,      // .ltk.yaml
 	"llm-tool-killer.yaml",
 	".llm-tool-killer.yaml",
 	".config/llm-tool-killer.yaml",
@@ -97,7 +97,7 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 func confirmByRepeat(resp engine.Response, command, stateFile string, window time.Duration) engine.Response {
 	out, overridden := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), window)
 	if overridden {
-		fmt.Fprintln(os.Stderr, "ltk: command repeated within the override window — allowing.")
+		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
 	}
 	return out
 }
@@ -106,9 +106,9 @@ func confirmByRepeat(resp engine.Response, command, stateFile string, window tim
 // or under .ltk/ in the cwd when the config location is unknown.
 func statePath(configPath string) string {
 	if configPath == "" {
-		return filepath.Join(".ltk", "state.json")
+		return filepath.Join(configDir, stateBase)
 	}
-	return filepath.Join(filepath.Dir(configPath), "state.json")
+	return filepath.Join(filepath.Dir(configPath), stateBase)
 }
 
 // loadConfig loads the given path, or searches the default locations, returning
