@@ -46,6 +46,10 @@ test:
 test-race:
     go test -race ./...
 
+# Run the human-readable acceptance features (godog, pretty output).
+acceptance:
+    go test ./tests/acceptance/ -v
+
 # Report any unformatted files (CI-friendly; non-zero on drift).
 fmt-check:
     @test -z "$(gofmt -l .)" || { echo "unformatted:"; gofmt -l .; exit 1; }
