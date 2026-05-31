@@ -23,8 +23,6 @@ default window for any `mode: confirm` rule (re-run a denied command within 30s
 to proceed anyway — an escape hatch, not a control).
 
 ```yaml
-# llm-tool-killer — default rule set, shipped with `ltk`.
-# Edit docs/DEFAULTS.md (the source of truth), not this file.
 version: 1
 
 defaults:
@@ -42,12 +40,14 @@ flags identical to CI. Ships as `mode: confirm` — repeat to run raw `go test`
 anyway. Edit this for your stack (`make test`, `npm test`, …) or set
 `mode: disable`.
 
+The shipped default names no specific runner (no `just`/`make`/`npm` assumption);
+fill in your project's command in `suggest` when you adopt it.
+
 ```yaml
   - id: tests-via-task-runner
     match: { command: [go, test] }
     mode: confirm
-    message: "Run tests through the project task runner, not the compiler directly."
-    suggest: "just test"
+    message: "Run tests through your project's task runner, not the compiler directly, so the suite matches CI."
 ```
 
 ## Don't discard uncommitted work
@@ -103,12 +103,16 @@ refuses if the remote moved.
 ## Keep commits scoped and correctly attributed
 
 `git add -A` / `git add .` sweeps in files the task never touched (and can stage
-deletions). Stage the in-scope paths explicitly.
+deletions), so the default is to stage in-scope paths explicitly. But blanket
+staging is genuinely the right call when a change spans a large file set — so
+this ships as `mode: confirm`: it nudges once, and repeating the command stages
+everything.
 
 ```yaml
   - id: stage-explicitly
     match: { command: [git, add], args_any: ["-A", "--all", "."] }
-    message: "Stage the files this change actually touches, not the whole tree."
+    mode: confirm
+    message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
     suggest: "git add <path> [<path> …]"
 ```
 

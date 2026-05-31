@@ -18,8 +18,11 @@ import (
 const (
 	source    = "docs/DEFAULTS.md"
 	generated = "cmd/ltk/sample.ltk.yaml"
-	header    = "# Code generated from docs/DEFAULTS.md by tools/extract-defaults; DO NOT EDIT.\n" +
-		"# Change the rules + rationale there, then run `just defaults` (lefthook enforces sync).\n"
+	// header is prepended to the generated file. It is written verbatim into a
+	// user's project on `ltk manage install`, so it must be user-facing and free
+	// of this project's own tooling (no just/lefthook/versionator references).
+	header = "# llm-tool-killer default rules — edit freely and commit alongside your project.\n" +
+		"# Rule model: https://github.com/benjaminabbitt/llm-tool-killer/blob/main/docs/RULES.md\n"
 )
 
 // blockRe captures the body of each ```yaml fenced block.

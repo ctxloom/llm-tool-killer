@@ -244,6 +244,9 @@ it off, and `confirm` lets the agent proceed by re-running the exact command
 within `defaults.repeat_window_seconds` (or a per-rule `window_seconds`) — an
 explicit, time-boxed escape hatch, not a security control.
 
+The set `ltk` ships with — and writes on `manage install` — is documented rule by
+rule, with the rationale for each, in [docs/DEFAULTS.md](docs/DEFAULTS.md).
+
 ```yaml
 version: 1
 

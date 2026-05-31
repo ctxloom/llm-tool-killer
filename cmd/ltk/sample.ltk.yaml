@@ -1,7 +1,5 @@
-# Code generated from docs/DEFAULTS.md by tools/extract-defaults; DO NOT EDIT.
-# Change the rules + rationale there, then run `just defaults` (lefthook enforces sync).
-# llm-tool-killer — default rule set, shipped with `ltk`.
-# Edit docs/DEFAULTS.md (the source of truth), not this file.
+# llm-tool-killer default rules — edit freely and commit alongside your project.
+# Rule model: https://github.com/benjaminabbitt/llm-tool-killer/blob/main/docs/RULES.md
 version: 1
 
 defaults:
@@ -12,8 +10,7 @@ rules:
   - id: tests-via-task-runner
     match: { command: [go, test] }
     mode: confirm
-    message: "Run tests through the project task runner, not the compiler directly."
-    suggest: "just test"
+    message: "Run tests through your project's task runner, not the compiler directly, so the suite matches CI."
   - id: no-reset-hard
     match: { command: [git, reset, --hard] }
     message: "`git reset --hard` discards uncommitted work irreversibly. Stash or commit first."
@@ -34,7 +31,8 @@ rules:
     suggest: "git push --force-with-lease"
   - id: stage-explicitly
     match: { command: [git, add], args_any: ["-A", "--all", "."] }
-    message: "Stage the files this change actually touches, not the whole tree."
+    mode: confirm
+    message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
     suggest: "git add <path> [<path> …]"
   - id: no-rewrite-git-identity
     match: { command: [git, config], args_any: ["user.email", "user.name"] }

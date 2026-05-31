@@ -54,8 +54,8 @@ rules:
     message: "A plain force-push can overwrite a teammate's commits."
     suggest: "git push --force-with-lease"
 
-  # --- Footgun guards (firm: mode enable). Repeating does not get them through;
-  # the message points at the safer path. ---
+  # --- Footgun guards. These stay firm (mode: enable, the default), so repeating
+  # the command does NOT get it through; the message points at the safer path. ---
 
   # Gaming the gate with --no-verify.
   - id: no-skip-commit-hooks
@@ -75,10 +75,14 @@ rules:
     message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash instead."
     suggest: "git stash --include-untracked"
 
-  # Over-broad staging.
+  # Over-broad staging. Not firm: blanket staging is usually a smell (it sweeps
+  # in files the task never touched), but when the change genuinely spans a large
+  # file set, `git add -A` is fine — even preferable to a long path list. So this
+  # nudges by default and lets you confirm by repeating.
   - id: stage-explicitly
     match: { command: [git, add], args_any: ["-A", "--all", "."] }
-    message: "Stage the files this change actually touches, not the whole tree."
+    mode: confirm
+    message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
     suggest: "git add <path> [<path> …]"
 
   # Rewriting commit identity.

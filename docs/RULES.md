@@ -106,8 +106,99 @@ same rule works everywhere:
 
 The `cmd` distinction matters: under cmd, `/c` is a switch, but under a POSIX
 shell `/usr/bin/x` is a path — so the same leading-`/` token is an option in one
-and positional in the other. Restrict a rule to specific shells with
-`match.shells: [cmd]` when needed.
+and positional in the other.
+
+### Restricting a rule to certain shells (`match.shells`)
+
+By default a rule applies under **every** shell. `match.shells` narrows it to a
+list of dialects: the rule is only considered when the command's resolved shell
+(see [Shell resolution](ARCHITECTURE.md#shell-resolution)) is one of them. An
+absent or empty `shells` means "all shells".
+
+```yaml
+match:
+  command: [del, /q]      # cmd's delete; `/q` is an option only under cmd
+  shells: [cmd]           # so scope the rule to cmd
+```
+
+Valid entries are `sh`, `bash`, `zsh`, `mksh`, `pwsh`, and `cmd`; an unknown
+shell is a config error (caught at load, like any other typo). The list is an
+unordered set — `[cmd, pwsh]` and `[pwsh, cmd]` are identical.
+
+Reach for `shells` when a rule is only meaningful, or only classifies correctly,
+on certain dialects:
+
+- **Flag syntax that only parses one way on the target shell** — the leading-`/`
+  case above. `[robocopy, /mir], shells: [cmd]` matches `/mir` as an option; on a
+  POSIX shell `/mir` would be read as a path operand and the rule wouldn't fire
+  as intended.
+- **Shell-specific builtins or cmdlets** — e.g. a PowerShell `Invoke-WebRequest`
+  rule (`shells: [pwsh]`) that has no bearing on bash.
+- **Platform-scoped policy** — a rule you only want to enforce where a given
+  shell is in use.
+
+If a rule is shell-agnostic (most are — `git`, `go`, `rm` mean the same thing
+everywhere), omit `shells` so it covers them all.
+
+#### How it combines with the rest of the match
+
+`shells` is one condition in the `match` block, and **all** conditions in a
+`match` must hold (logical AND). So `shells` acts as a gate evaluated *before*
+the command pattern: if the resolved shell isn't in the list, the rule is skipped
+outright and `command`/`args_any`/`args_all` are never even tested. A rule with
+*only* `shells` and no `command` matches every command under those shells — which
+is occasionally what you want (a blanket "this rule set doesn't apply on
+Windows-`cmd`" guard), but usually you pair it with a `command`.
+
+#### Which shell is "the resolved shell"
+
+`shells` is checked against the single shell ltk resolved for the whole command
+line, not per-token or per-program. That shell comes from the resolution
+precedence in [ARCHITECTURE.md](ARCHITECTURE.md#shell-resolution) (force flag →
+engine/tool hint → `defaults.shell` → `$SHELL` → `bash`). Two consequences worth
+internalizing:
+
+- A wrapped inner command is re-parsed under the *inner* shell. So
+  `pwsh -Command "..."` run from bash yields nested commands whose shell is
+  `pwsh`; a `shells: [pwsh]` rule will match them even though the outer line was
+  bash. You scope to where the command actually runs, not where it was typed.
+- If resolution lands on the wrong dialect (e.g. nothing hinted the shell and it
+  fell back to `bash` on a Windows box), a `shells: [cmd]` rule won't fire. When
+  a rule mysteriously doesn't match, check the resolved shell first.
+
+#### Worked example
+
+```yaml
+rules:
+  - id: no-cmd-rmdir
+    match:
+      command: [rmdir, /s]    # cmd's recursive dir delete; /s is its switch
+      shells: [cmd]
+    message: "Don't recursively delete directories from the agent."
+```
+
+| Command line | Resolved shell | Fires? | Why |
+|---|---|---|---|
+| `rmdir /s build` | cmd | ✅ | shell in list; `/s` classifies as an option under cmd |
+| `rmdir /s build` | bash | ❌ | shell not in `[cmd]` — rule skipped before matching |
+| `rmdir /something` | cmd | ❌ | shell matches, but `/something` ≠ the `/s` option |
+
+The second row is the whole point: the *same text* is correct to block under cmd
+and meaningless (a path operand) under a POSIX shell, so the rule is deliberately
+scoped to where it parses correctly.
+
+#### Multi-shell rules
+
+List more than one dialect when a rule applies to a family but not all:
+
+```yaml
+match:
+  command: [curl]
+  shells: [bash, zsh, sh, mksh]   # POSIX shells only; skip pwsh/cmd
+```
+
+There is no wildcard and no "all-POSIX" shorthand — list the dialects
+explicitly. Omitting `shells` entirely is the only "every shell" form.
 
 **Bundled short options.** Under a POSIX shell, a single-dash cluster like `-rf`
 is matched as if it also carried `-r` and `-f` separately (the getopt

@@ -10,15 +10,9 @@ import _ "embed"
 //go:embed sample.ltk.yaml
 var defaultRules string
 
-// minimalRules is written instead when --no-default-rules is set: a valid but
-// empty config for the user to fill in.
-const minimalRules = `# llm-tool-killer rules. Add your own.
-# Model: https://github.com/benjaminabbitt/llm-tool-killer/blob/main/docs/RULES.md
-version: 1
-
-defaults:
-  on_parse_error: allow
-  repeat_window_seconds: 30
-
-rules: []
-`
+// minimalRules is written instead when --no-default-rules is given: a valid but
+// empty config for the user to fill in. Both templates are separate files
+// embedded at compile time.
+//
+//go:embed empty.ltk.yaml
+var minimalRules string
