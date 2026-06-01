@@ -32,9 +32,11 @@ type Response struct {
 	Suggest string
 	// Confirmable reports whether a denial may be lifted by repeating the exact
 	// command within ConfirmWindowSeconds (the "confirm by repeating" override).
+	// ConfirmDelaySeconds is a minimum wait before the repeat counts (0 = none).
 	// An inviolate rule yields Confirmable=false, so repeating never helps.
 	Confirmable          bool
 	ConfirmWindowSeconds int
+	ConfirmDelaySeconds  int
 }
 
 // Message renders the reason and suggestion into a single human-facing string.

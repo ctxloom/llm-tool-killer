@@ -12,15 +12,17 @@ is a *cooperative nudge* — it turns a command away and points at the safer pat
 it is not a security boundary (for hard isolation, run the agent in a container).
 
 Rules use `mode` (default `enable`, a firm denial). Workflow redirects ship as
-`mode: confirm` — you can still run the raw command by repeating it within the
-window — while the destructive-action guards stay firm (`enable`), so repeating
-them changes nothing. See [RULES.md](RULES.md#rule-mode).
+`mode: confirm` — you can still run the raw command by repeating it after the
+delay and within the window — while the destructive-action guards stay firm
+(`enable`), so repeating them changes nothing. See [RULES.md](RULES.md#rule-mode).
 
 ## Header
 
-The document opens with the config header: fail open on unparseable input, and a
-default window for any `mode: confirm` rule (re-run a denied command within 30s
-to proceed anyway — an escape hatch, not a control).
+The document opens with the config header: fail open on unparseable input, and
+the window/delay for any `mode: confirm` rule. A denied command can be re-run to
+proceed, but only after a 10s **delay** and within a 30s **window** — so an
+immediate, reflexive repeat is ignored, and only a deliberate one (after the
+pause) goes through. It's an escape hatch, not a control.
 
 ```yaml
 version: 1
@@ -28,6 +30,7 @@ version: 1
 defaults:
   on_parse_error: allow
   repeat_window_seconds: 30
+  repeat_delay_seconds: 10
 
 rules:
 ```
@@ -161,4 +164,34 @@ the wrong PID, your editor, or a sibling agent. Target a specific PID instead.
   - id: no-killall
     match: { command: killall }
     message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."
+```
+
+## Don't disturb pinned git submodules
+
+These are **file-edit** rules (`match.path`), not command rules — they gate the
+agent's Edit/Write/MultiEdit/NotebookEdit tools. A submodule's working tree is a
+separate repo pinned at a commit; editing its files from the superproject is
+almost always a mistake (the change isn't committed where the agent expects and
+gets lost). `@submodules` expands to every path in `.gitmodules`, so this one
+rule covers all of them without naming them and stays correct as they change.
+
+Unlike the workflow nudges above, these ship `enable` (**firm** — repeating does
+not lift them): a submodule's contents belong to that submodule's own repo, so
+there is no "override and edit it from here" that's correct. Make the edit in the
+submodule and commit it there.
+
+```yaml
+  - id: no-edit-submodules
+    match: { path: ["@submodules"] }
+    message: "This file is inside a git submodule (a pinned, separate repo). Edit it in that submodule's own repo and commit there — never from the superproject. This is firm; there is no override."
+```
+
+`.gitmodules` itself defines the submodule set; hand-editing it desyncs the
+recorded gitlinks from the config. Add/remove submodules with `git submodule`,
+not a text edit.
+
+```yaml
+  - id: no-edit-gitmodules
+    match: { path: [.gitmodules] }
+    message: "Don't hand-edit .gitmodules — use `git submodule add`/`deinit` so the config and the recorded gitlink stay in sync."
 ```

@@ -20,12 +20,20 @@ import (
 	"github.com/spf13/afero"
 )
 
-// Store is a tiny on-disk map of command → unix expiry. It is best-effort and
+// pending is a single armed override: the repeat is honored only in the band
+// [NotBefore, Expiry] (unix seconds) — NotBefore enforces a minimum delay, Expiry
+// the window. With no delay, NotBefore == the arm time.
+type pending struct {
+	NotBefore int64 `json:"not_before"`
+	Expiry    int64 `json:"expiry"`
+}
+
+// Store is a tiny on-disk map of command → armed override. It is best-effort and
 // not concurrency-safe; hooks run effectively one at a time.
 type Store struct {
 	fs      afero.Fs
 	path    string
-	Pending map[string]int64 `json:"pending"` // command → unix expiry seconds
+	Pending map[string]pending `json:"pending"` // command → armed override band
 }
 
 // Open loads the store at path from fs. A missing or corrupt file yields an
@@ -35,27 +43,46 @@ func Open(fs afero.Fs, path string) *Store {
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
-	s := &Store{fs: fs, path: path, Pending: map[string]int64{}}
+	s := &Store{fs: fs, path: path, Pending: map[string]pending{}}
 	if b, err := afero.ReadFile(fs, path); err == nil {
 		_ = json.Unmarshal(b, s)
 		if s.Pending == nil {
-			s.Pending = map[string]int64{}
+			s.Pending = map[string]pending{}
 		}
 	}
 	return s
 }
 
 // Armed reports whether cmd has an unexpired pending entry — i.e. it was denied
-// recently and a repeat now should be allowed.
+// recently and an override is still live (the delay may or may not have elapsed;
+// see Ready).
 func (s *Store) Armed(cmd string, now time.Time) bool {
-	exp, ok := s.Pending[cmd]
-	return ok && now.Unix() < exp
+	p, ok := s.Pending[cmd]
+	return ok && now.Unix() < p.Expiry
 }
 
-// Arm records cmd as pending until now+window, so the next identical command
-// within the window is treated as a confirmation.
-func (s *Store) Arm(cmd string, now time.Time, window time.Duration) {
-	s.Pending[cmd] = now.Add(window).Unix()
+// Ready reports whether a live override for cmd may now be consumed: the delay
+// has elapsed (now ≥ NotBefore) and the window has not (now < Expiry).
+func (s *Store) Ready(cmd string, now time.Time) bool {
+	p, ok := s.Pending[cmd]
+	return ok && now.Unix() >= p.NotBefore && now.Unix() < p.Expiry
+}
+
+// RemainingDelay returns how many seconds remain before a live override for cmd
+// becomes consumable, or 0 if the delay has already elapsed (or there is none).
+func (s *Store) RemainingDelay(cmd string, now time.Time) int {
+	if p, ok := s.Pending[cmd]; ok && now.Unix() < p.NotBefore {
+		return int(p.NotBefore - now.Unix())
+	}
+	return 0
+}
+
+// Arm records cmd as pending: confirmable in the band [now+delay, now+window].
+func (s *Store) Arm(cmd string, now time.Time, delay, window time.Duration) {
+	s.Pending[cmd] = pending{
+		NotBefore: now.Add(delay).Unix(),
+		Expiry:    now.Add(window).Unix(),
+	}
 }
 
 // Clear removes cmd's pending entry (call after consuming a confirmation).
@@ -63,8 +90,8 @@ func (s *Store) Clear(cmd string) { delete(s.Pending, cmd) }
 
 // Save prunes expired entries and writes the store, creating its directory.
 func (s *Store) Save(now time.Time) error {
-	for c, exp := range s.Pending {
-		if now.Unix() >= exp {
+	for c, p := range s.Pending {
+		if now.Unix() >= p.Expiry {
 			delete(s.Pending, c)
 		}
 	}

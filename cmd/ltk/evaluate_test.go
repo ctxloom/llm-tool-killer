@@ -19,7 +19,7 @@ func TestConfirmByRepeat(t *testing.T) {
 
 	// First attempt: still denied, but the reason now tells the agent how to
 	// proceed, and the override is armed on disk.
-	first := confirmByRepeat(denied, cmd, stateFile, 30*time.Second)
+	first := confirmByRepeat(denied, cmd, stateFile, 0, 30*time.Second)
 	if first.Allow {
 		t.Fatal("first attempt must still be denied")
 	}
@@ -31,13 +31,13 @@ func TestConfirmByRepeat(t *testing.T) {
 	}
 
 	// Second attempt, same command: allowed.
-	second := confirmByRepeat(denied, cmd, stateFile, 30*time.Second)
+	second := confirmByRepeat(denied, cmd, stateFile, 0, 30*time.Second)
 	if !second.Allow {
 		t.Error("repeating the exact command within the window must be allowed")
 	}
 
 	// The override is single-use: a third attempt re-arms and denies again.
-	third := confirmByRepeat(denied, cmd, stateFile, 30*time.Second)
+	third := confirmByRepeat(denied, cmd, stateFile, 0, 30*time.Second)
 	if third.Allow {
 		t.Error("override is single-use; the next attempt must be denied again")
 	}
@@ -48,8 +48,8 @@ func TestConfirmByRepeatIsPerCommand(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	denied := engine.Response{Allow: false, Reason: "nope"}
 
-	confirmByRepeat(denied, "go test", stateFile, 30*time.Second) // arm "go test"
-	other := confirmByRepeat(denied, "git push --force", stateFile, 30*time.Second)
+	confirmByRepeat(denied, "go test", stateFile, 0, 30*time.Second) // arm "go test"
+	other := confirmByRepeat(denied, "git push --force", stateFile, 0, 30*time.Second)
 	if other.Allow {
 		t.Error("a different command must not be allowed by another's armed override")
 	}
@@ -62,9 +62,9 @@ func TestConfirmByRepeatTinyWindowDenies(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "state.json")
 	denied := engine.Response{Allow: false, Reason: "nope"}
 
-	confirmByRepeat(denied, "go test", stateFile, time.Nanosecond)
+	confirmByRepeat(denied, "go test", stateFile, 0, time.Nanosecond)
 	time.Sleep(time.Millisecond)
-	again := confirmByRepeat(denied, "go test", stateFile, time.Nanosecond)
+	again := confirmByRepeat(denied, "go test", stateFile, 0, time.Nanosecond)
 	if again.Allow {
 		t.Error("an elapsed window must not allow the repeat")
 	}

@@ -6,6 +6,30 @@ import (
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
+// delay_seconds must fit inside a confirm window, or Parse rejects it.
+func TestDelayValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{"valid delay under window", "version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", false},
+		{"delay equals window", "version: 1\ndefaults: { repeat_window_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", true},
+		{"delay without any window", "version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    delay_seconds: 10\n    message: m\n", true},
+		{"delay on non-confirm is ignored", "version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    delay_seconds: 10\n    message: m\n", false},
+		{"default delay under window", "version: 1\ndefaults: { repeat_window_seconds: 30, repeat_delay_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n", false},
+		{"default delay equals window", "version: 1\ndefaults: { repeat_window_seconds: 10, repeat_delay_seconds: 10 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.yaml))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Parse err = %v, wantErr = %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 // mode controls whether a rule fires: disable → inert, enable/confirm → fires.
 func TestRuleModeMatching(t *testing.T) {
 	mk := func(mode Mode) *Config {
@@ -73,18 +97,23 @@ func TestConfirmPolicy(t *testing.T) {
 		defs       Defaults
 		repeatable bool
 		window     int
+		delay      int
 	}{
-		{"enable is inviolate", Rule{Mode: ModeEnable}, Defaults{RepeatWindowSeconds: 30}, false, 0},
-		{"disable is not repeatable", Rule{Mode: ModeDisable}, Defaults{RepeatWindowSeconds: 30}, false, 0},
-		{"confirm uses global window", Rule{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30}, true, 30},
-		{"confirm overrides window", Rule{Mode: ModeConfirm, WindowSeconds: 5}, Defaults{RepeatWindowSeconds: 30}, true, 5},
-		{"confirm with no window is inert", Rule{Mode: ModeConfirm}, Defaults{}, false, 0},
+		{"enable is inviolate", Rule{Mode: ModeEnable}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
+		{"disable is not repeatable", Rule{Mode: ModeDisable}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
+		{"confirm uses global window", Rule{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30}, true, 30, 0},
+		{"confirm overrides window", Rule{Mode: ModeConfirm, WindowSeconds: 5}, Defaults{RepeatWindowSeconds: 30}, true, 5, 0},
+		{"confirm with no window is inert", Rule{Mode: ModeConfirm}, Defaults{}, false, 0, 0},
+		{"confirm carries per-rule delay", Rule{Mode: ModeConfirm, DelaySeconds: 10}, Defaults{RepeatWindowSeconds: 30}, true, 30, 10},
+		{"confirm uses default delay", Rule{Mode: ModeConfirm}, Defaults{RepeatWindowSeconds: 30, RepeatDelaySeconds: 10}, true, 30, 10},
+		{"per-rule delay overrides default", Rule{Mode: ModeConfirm, DelaySeconds: 5}, Defaults{RepeatWindowSeconds: 30, RepeatDelaySeconds: 10}, true, 30, 5},
+		{"delay ignored for enable", Rule{Mode: ModeEnable, DelaySeconds: 10}, Defaults{RepeatWindowSeconds: 30}, false, 0, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rep, win := tc.rule.confirmPolicy(tc.defs)
-			if rep != tc.repeatable || win != tc.window {
-				t.Fatalf("got (repeatable=%v, window=%d), want (%v, %d)", rep, win, tc.repeatable, tc.window)
+			rep, win, delay := tc.rule.confirmPolicy(tc.defs)
+			if rep != tc.repeatable || win != tc.window || delay != tc.delay {
+				t.Fatalf("got (repeatable=%v, window=%d, delay=%d), want (%v, %d, %d)", rep, win, delay, tc.repeatable, tc.window, tc.delay)
 			}
 		})
 	}

@@ -79,6 +79,7 @@ func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
 			Suggest:              d.Suggest,
 			Confirmable:          d.Confirmable,
 			ConfirmWindowSeconds: d.ConfirmWindowSeconds,
+			ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
 		}
 	}
 	command := strings.TrimSpace(req.Command)
@@ -108,5 +109,6 @@ func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
 		Suggest:              d.Suggest,
 		Confirmable:          d.Confirmable,
 		ConfirmWindowSeconds: d.ConfirmWindowSeconds,
+		ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
 	}
 }

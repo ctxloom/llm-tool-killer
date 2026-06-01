@@ -5,6 +5,7 @@ version: 1
 defaults:
   on_parse_error: allow
   repeat_window_seconds: 30
+  repeat_delay_seconds: 10
 
 rules:
   - id: tests-via-task-runner
@@ -51,3 +52,9 @@ rules:
   - id: no-killall
     match: { command: killall }
     message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."
+  - id: no-edit-submodules
+    match: { path: ["@submodules"] }
+    message: "This file is inside a git submodule (a pinned, separate repo). Edit it in that submodule's own repo and commit there — never from the superproject. This is firm; there is no override."
+  - id: no-edit-gitmodules
+    match: { path: [.gitmodules] }
+    message: "Don't hand-edit .gitmodules — use `git submodule add`/`deinit` so the config and the recorded gitlink stay in sync."

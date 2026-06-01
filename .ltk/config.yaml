@@ -7,13 +7,14 @@
 # agent so it retries the project's way. See docs/RULES.md for the full model.
 #
 # Rule mode (default enable): enable = firm denial; confirm = re-run the exact
-# command within the window to proceed; disable = inert. Override state for
-# confirm lives next to this file in .ltk/state.json (gitignored).
+# command after the delay and within the window to proceed; disable = inert.
+# Override state for confirm lives next to this file in .ltk/state.json (gitignored).
 version: 1
 
 defaults:
   on_parse_error: allow      # command unparseable → allow (fail-open), the cooperative default
   repeat_window_seconds: 30  # window for `mode: confirm` rules
+  repeat_delay_seconds: 10   # ignore an immediate confirm-repeat this long (kills the reflexive bypass)
 
 rules:
   # Workflow redirects: mode: confirm so you can still run the raw command in a
@@ -126,3 +127,14 @@ rules:
   - id: no-hand-edit-version
     match: { path: [VERSION] }
     message: "Don't hand-edit VERSION — it's managed by Versionator. Use `just bump` (or `versionator set <v>`), then `just release`."
+
+  # File-edit rules: don't disturb pinned git submodules. Firm (enable) — a
+  # submodule's contents belong to its own repo, so there's no correct override.
+  # `@submodules` expands to every path in .gitmodules (inert while there are
+  # none, so this is safe to carry ahead of any submodule landing here).
+  - id: no-edit-submodules
+    match: { path: ["@submodules"] }
+    message: "This file is inside a git submodule (a pinned, separate repo). Edit it in that submodule's own repo and commit there — never from the superproject. This is firm; there is no override."
+  - id: no-edit-gitmodules
+    match: { path: [.gitmodules] }
+    message: "Don't hand-edit .gitmodules — use `git submodule add`/`deinit` so the config and the recorded gitlink stay in sync."

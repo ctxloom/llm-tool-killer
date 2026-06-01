@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/llm-tool-killer/internal/engine"
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
 	"github.com/ctxloom/llm-tool-killer/internal/rules"
+	"github.com/ctxloom/llm-tool-killer/internal/scm"
 	"github.com/ctxloom/llm-tool-killer/internal/shellenv"
 	"github.com/ctxloom/llm-tool-killer/internal/state"
 )
@@ -35,7 +36,21 @@ func newEvaluateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "evaluate",
 		Short: "Evaluate a hook payload from stdin and emit an allow/deny decision",
-		Args:  cobra.NoArgs,
+		Long: `Evaluate reads a hook payload (JSON) on stdin and emits an allow/deny decision.
+
+It handles both kinds of payload the editing agent sends:
+
+  • a shell command (tool_input.command) — parsed and matched against command
+    rules, in the shell the tool implies (or --shell to force one).
+  • a file edit (tool_input.file_path) — matched against file rules (match.path):
+    globs, directory subtrees (a trailing slash, e.g. vendor/), and the
+    "@submodules" sentinel, which is resolved against this repo's .gitmodules so
+    one rule blocks edits inside every submodule.
+
+A denial is written in the engine's format (for Claude Code, a permissionDecision
+on stdout, exit 0); an allow writes nothing. Intended to be run by the hook, not
+by hand.`,
+		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return runEvaluate(engineName, cfgPath, ir.Shell(shellName))
 		},
@@ -54,6 +69,11 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 	cfg, resolved, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
+	}
+	// Resolve the `@submodules` path sentinel against this repo's .gitmodules, so
+	// a rule can block edits inside every submodule without naming them.
+	if wd, err := os.Getwd(); err == nil {
+		cfg.ExpandSubmodules(scm.SubmodulePaths(afero.NewOsFs(), wd))
 	}
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -80,6 +100,7 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 			key = "edit:" + req.FilePath
 		}
 		resp = confirmByRepeat(resp, key, statePath(resolved),
+			time.Duration(resp.ConfirmDelaySeconds)*time.Second,
 			time.Duration(resp.ConfirmWindowSeconds)*time.Second)
 	}
 
@@ -100,8 +121,8 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 // confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
 // using the wall clock, and notes on stderr when a repeat was honored. The logic
 // lives in internal/state so the acceptance suite can exercise it too.
-func confirmByRepeat(resp engine.Response, command, stateFile string, window time.Duration) engine.Response {
-	out, overridden := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), window)
+func confirmByRepeat(resp engine.Response, command, stateFile string, delay, window time.Duration) engine.Response {
+	out, overridden := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
 	if overridden {
 		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
 	}

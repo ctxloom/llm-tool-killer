@@ -1,20 +1,40 @@
 # Architecture
 
 `llm-tool-killer` (`ltk`) is invoked as a **pre-tool hook** by an LLM coding
-agent. It reads the proposed shell command on stdin, decides whether to allow or
-deny it, and—on a denial—hands the model a reason and a suggested alternative so
-it can retry the right way (e.g. "don't run `go test`, use `just test`").
+agent. It reads the proposed action on stdin — a **shell command** (Bash/
+PowerShell tool) or a **file edit** (Edit/Write/MultiEdit/NotebookEdit tool) —
+decides whether to allow or deny it, and—on a denial—hands the model a reason and
+a suggested alternative so it can retry the right way (e.g. "don't run `go test`,
+use `just test`", or "don't hand-edit `VERSION`").
+
+The two paths share the engine and rule model but diverge at evaluation: a
+command is parsed to an IR and matched against **command rules**; a file edit
+carries a `file_path` and is matched against **`match.path` rules** (no shell
+parsing). See the file-edit branch below the diagram.
 
 ```mermaid
 flowchart TD
     in(["hook payload — stdin (JSON)"]) --> decode["engine.Adapter.Decode<br/>(per hook engine)"]
-    decode -->|"engine.Request<br/>{tool, command, shell-hint}"| resolve["app.resolveShell<br/>force › hint › config.shell › $SHELL › bash"]
+    decode -->|"engine.Request<br/>{tool, command | file_path, shell-hint}"| branch{"file edit?<br/>(file_path set)"}
+    branch -->|"yes"| epath["rules.EvaluatePath<br/>match file_path vs match.path rules"]
+    branch -->|"no (command)"| resolve["app.resolveShell<br/>force › hint › config.shell › $SHELL › bash"]
     resolve -->|shell| parse["frontend.Registry.Parse<br/>dispatch shell / pwsh / cmd → one IR<br/>(resolves known variables)"]
     parse -->|"ir.Script (command graph)"| wrap["Registry.ExpandWrappers<br/>re-parse bash -c / eval / cmd /c inner command"]
     wrap --> eval["rules.Evaluate<br/>walk every command; first deny wins"]
     eval -->|"rules.Decision"| encode["engine.Adapter.Encode"]
+    epath -->|"rules.Decision"| encode
     encode -->|"engine.Output<br/>{stdout, stderr, exit}"| out(["engine-specific decision<br/>(stdout/stderr + exit code)"])
 ```
+
+**File-edit branch.** When `engine.Request.FilePath` is set (the agent invoked an
+editing tool), `app.Decide` skips shell resolution and parsing entirely and calls
+`rules.EvaluatePath`, which matches the path against the `match.path` rules (first
+deny wins, same `mode`/`confirm`/`message`/`suggest` semantics as command rules).
+The `@submodules` sentinel is resolved against `.gitmodules` (`internal/scm`) and
+expanded to one directory pattern per submodule before evaluation, keeping the
+`rules` package free of filesystem I/O. Path globbing is doublestar (`**`), tried
+against basename, full path, and an implicit `**/` prefix so repo-relative
+patterns match the absolute paths the tools pass — see [RULES.md](RULES.md#matching-file-edits-matchpath).
 
 Two interfaces carry all the variation:
 
@@ -136,19 +156,13 @@ each `engine.Adapter` absorbs:
   `manage` and `evaluate` already dispatch polymorphically, so each is purely
   additive. **Vote 👍 on the issues to prioritize.**
 - More `match` operators.
-- **Pre-write hooks — document & expose the file-write surface.** `match.path`
-  rules already gate file edits (Edit/Write/MultiEdit/NotebookEdit), but the
-  pre-write surface is under-documented and not deliberately exposed as a
-  first-class feature alongside command rules. TODO: document the file-write
-  hook path end to end (matcher wiring, payload, `match.path` semantics) and
-  surface it in the README/quickstart, not just the rules reference. **First
-  concrete target: blocking `git submodule`** — both the command form
-  (`git submodule add`) and edits to `.gitmodules` — as a worked example and a
-  candidate shipped default.
 
 Done: POSIX-shell frontend, real **pwsh** frontend (native parser), **cmd**
 frontend (hand-written lexer), rule engine, Claude Code engine (`evaluate` +
-`manage install`/`uninstall`).
+`manage install`/`uninstall`), **file-edit (`match.path`) rules** — full-glob
+(doublestar `**`) matching, directory subtrees (`vendor/`), and the
+`@submodules` sentinel that blocks edits inside every git submodule, with the
+shipped defaults guarding `.gitmodules` and submodule contents.
 
 The shape of the whole system is one idea: every shell dialect lowers into one
 IR, and everything downstream — understanding, rule matching, engine I/O —

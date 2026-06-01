@@ -15,9 +15,11 @@ type Decision struct {
 	Suggest string           // suggested replacement command, if any
 	// Confirmable reports whether this denial may be lifted by repeating the
 	// command (the "confirm by repeating" override). ConfirmWindowSeconds is the
-	// window for doing so. An inviolate rule yields Confirmable=false.
+	// window for doing so; ConfirmDelaySeconds is a minimum wait before the repeat
+	// counts (0 = none). An inviolate rule yields Confirmable=false.
 	Confirmable          bool
 	ConfirmWindowSeconds int
+	ConfirmDelaySeconds  int
 }
 
 // Evaluate matches every command in the script (nested included) against the
@@ -44,7 +46,7 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 				continue
 			}
 			if r.action() == ActionDeny {
-				repeatable, window := r.confirmPolicy(cfg.Defaults)
+				repeatable, window, delay := r.confirmPolicy(cfg.Defaults)
 				decision = Decision{
 					Allowed:              false,
 					Rule:                 r,
@@ -53,6 +55,7 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 					Suggest:              r.Suggest,
 					Confirmable:          repeatable,
 					ConfirmWindowSeconds: window,
+					ConfirmDelaySeconds:  delay,
 				}
 				denied = true
 				return false // stop the walk; first deny wins
@@ -86,7 +89,7 @@ func EvaluatePath(cfg *Config, filePath string) Decision {
 		if r.action() != ActionDeny {
 			return Decision{Allowed: true} // explicit allow rule
 		}
-		repeatable, window := r.confirmPolicy(cfg.Defaults)
+		repeatable, window, delay := r.confirmPolicy(cfg.Defaults)
 		return Decision{
 			Allowed:              false,
 			Rule:                 r,
@@ -94,6 +97,7 @@ func EvaluatePath(cfg *Config, filePath string) Decision {
 			Suggest:              r.Suggest,
 			Confirmable:          repeatable,
 			ConfirmWindowSeconds: window,
+			ConfirmDelaySeconds:  delay,
 		}
 	}
 	return Decision{Allowed: true}

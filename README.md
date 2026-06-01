@@ -231,7 +231,7 @@ command, and retries the right way.
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash|PowerShell",
+      { "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [ { "type": "command", "command": "ltk evaluate --config .ltk/config.yaml" } ] }
     ]
   }
@@ -246,7 +246,10 @@ wins; its `message`/`suggest` is returned to the model. Each rule has a `mode`
 (default `enable`): `enable` is a firm denial, `disable` keeps the rule but turns
 it off, and `confirm` lets the agent proceed by re-running the exact command
 within `defaults.repeat_window_seconds` (or a per-rule `window_seconds`) — an
-explicit, time-boxed escape hatch, not a security control.
+explicit, time-boxed escape hatch, not a security control. A `confirm` rule can
+add `delay_seconds` to *ignore* an immediate repeat until N seconds pass — this
+removes the "repeating is quicker than complying" incentive and blocks the
+reflexive instant retry (see [Rule mode](docs/RULES.md#rule-mode)).
 
 The set `ltk` ships with — and writes on `manage install` — is documented rule by
 rule, with the rationale for each, in [docs/DEFAULTS.md](docs/DEFAULTS.md).
@@ -285,6 +288,31 @@ rules:
 doesn't). The full model — including cross-shell portability — is in
 [docs/RULES.md](docs/RULES.md).
 
+### Guarding file edits, not just commands
+
+A rule can instead match the agent's **file-editing** tools (Edit, Write,
+MultiEdit, NotebookEdit) with `match.path` — for files a tool owns, a whole
+directory, or every git submodule. Patterns are full globs (`*`, `**`, `{a,b}`);
+a trailing slash means the whole subtree.
+
+```yaml
+rules:
+  - id: no-hand-edit-version
+    match: { path: [VERSION] }            # a tool-owned file (any glob)
+    message: "VERSION is managed by the release tool — don't hand-edit it."
+
+  - id: no-edit-vendored
+    match: { path: [vendor/] }            # a whole directory subtree
+
+  - id: no-edit-submodules
+    match: { path: ["@submodules"] }      # every path in .gitmodules, expanded
+    message: "This file lives in a git submodule — edit it in that repo, not here."
+```
+
+`manage install` registers the hook for the editing tools as well as the shell
+tools (matcher `Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit`), so path
+rules fire out of the box. Details in [docs/RULES.md](docs/RULES.md#matching-file-edits-matchpath).
+
 ### This repo runs its own rules
 
 `ltk` dogfoods itself. The rules enforced against agents working in *this*
@@ -318,7 +346,7 @@ It works. Here's the hook catching this project's own coding agent reaching for
 | | |
 |---|---|
 | **Shells** | sh, bash, zsh, mksh (in-process via mvdan/sh); PowerShell (native parser); cmd.exe (built-in lexer). Variable resolution: shell family. |
-| **Engines** | **Claude Code only** right now (`PreToolUse`). Codex and Gemini are planned, not built — vote 👍 to prioritize: [Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1), [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2). |
+| **Engines** | **Claude Code only** right now (`PreToolUse`, gating both shell commands and file edits). Codex and Gemini are planned, not built — vote 👍 to prioritize: [Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1), [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2). |
 
 ## Develop
 

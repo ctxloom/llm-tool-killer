@@ -17,7 +17,7 @@ func TestArmConfirmAndExpiry(t *testing.T) {
 	if s.Armed("go test", now) {
 		t.Fatal("nothing armed yet")
 	}
-	s.Arm("go test", now, 30*time.Second)
+	s.Arm("go test", now, 0, 30*time.Second)
 	if err := s.Save(now); err != nil {
 		t.Fatal(err)
 	}
@@ -40,13 +40,40 @@ func TestArmConfirmAndExpiry(t *testing.T) {
 	}
 }
 
+// With a delay, an entry is armed (live) but not Ready until the delay elapses,
+// then Ready until the window closes.
+func TestArmWithDelayBand(t *testing.T) {
+	s := Open(afero.NewMemMapFs(), "state.json")
+	now := time.Unix(1_000_000, 0)
+	s.Arm("go test", now, 10*time.Second, 30*time.Second) // band [+10s, +30s]
+
+	// Immediately: armed but too early to consume.
+	if !s.Armed("go test", now) || s.Ready("go test", now) {
+		t.Error("inside the delay: armed but not ready")
+	}
+	if got := s.RemainingDelay("go test", now); got != 10 {
+		t.Errorf("RemainingDelay = %d, want 10", got)
+	}
+	// After the delay, before the window closes: ready.
+	if !s.Ready("go test", now.Add(15*time.Second)) {
+		t.Error("after the delay and within the window: should be ready")
+	}
+	if got := s.RemainingDelay("go test", now.Add(15*time.Second)); got != 0 {
+		t.Errorf("RemainingDelay after delay = %d, want 0", got)
+	}
+	// After the window: neither armed nor ready.
+	if s.Armed("go test", now.Add(31*time.Second)) || s.Ready("go test", now.Add(31*time.Second)) {
+		t.Error("after the window: expired")
+	}
+}
+
 func TestSavePrunesExpired(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	path := "state.json"
 	now := time.Unix(2_000_000, 0)
 
 	s := Open(fs, path)
-	s.Arm("old", now, 10*time.Second)
+	s.Arm("old", now, 0, 10*time.Second)
 	if err := s.Save(now.Add(20 * time.Second)); err != nil {
 		t.Fatal(err)
 	}

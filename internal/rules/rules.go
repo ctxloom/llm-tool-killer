@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
@@ -49,6 +50,13 @@ type Defaults struct {
 	// hatch, not a control. The evaluator does not implement it (it is stateless
 	// and pure); the CLI layer reads this and tracks state on disk.
 	RepeatWindowSeconds int `yaml:"repeat_window_seconds"`
+	// RepeatDelaySeconds is the default minimum wait before any `confirm` rule can
+	// be confirmed by repeating: an immediate repeat is ignored until this many
+	// seconds after the first denial. 0 (the default) means no delay. A per-rule
+	// delay_seconds overrides it. Must be less than the effective window. It
+	// removes the "repeating is quicker than complying" incentive; it is not a
+	// control (a determined agent can wait).
+	RepeatDelaySeconds int `yaml:"repeat_delay_seconds"`
 }
 
 // Mode controls whether and how strongly a rule fires. It collapses the older
@@ -83,6 +91,14 @@ type Rule struct {
 	// WindowSeconds is the confirm-by-repeating window for a `confirm` rule. 0
 	// means "use defaults.repeat_window_seconds". Ignored for other modes.
 	WindowSeconds int `yaml:"window_seconds"`
+	// DelaySeconds is a minimum wait before a `confirm` rule can be confirmed: the
+	// repeat is ignored until this many seconds after the first denial, then
+	// honored up to the window. 0 (default) means no delay — an immediate repeat
+	// works. It removes the convenience incentive to bypass (waiting is slower than
+	// just running the suggested command) and breaks the reflexive instant retry;
+	// it is NOT a security control (a determined agent can still wait). Must be
+	// less than the effective window. Ignored for non-confirm modes.
+	DelaySeconds int `yaml:"delay_seconds"`
 }
 
 func (r Rule) action() Action {
@@ -107,18 +123,23 @@ func (r Rule) isEnabled() bool {
 }
 
 // confirmPolicy resolves whether a denial by this rule may be lifted by
-// repeating the command, and the window for doing so, given the global defaults.
-// Only a `confirm` rule is repeatable, and only when a positive window applies
-// (per-rule window overriding the global default). `enable` rules are inviolate.
-func (r Rule) confirmPolicy(d Defaults) (repeatable bool, windowSeconds int) {
+// repeating the command, the window for doing so, and any minimum delay before
+// the repeat counts, given the global defaults. Only a `confirm` rule is
+// repeatable, and only when a positive window applies (per-rule window overriding
+// the global default). `enable` rules are inviolate.
+func (r Rule) confirmPolicy(d Defaults) (repeatable bool, windowSeconds, delaySeconds int) {
 	if r.mode() != ModeConfirm {
-		return false, 0
+		return false, 0, 0
 	}
 	windowSeconds = d.RepeatWindowSeconds
 	if r.WindowSeconds > 0 {
 		windowSeconds = r.WindowSeconds
 	}
-	return windowSeconds > 0, windowSeconds
+	delaySeconds = d.RepeatDelaySeconds
+	if r.DelaySeconds > 0 {
+		delaySeconds = r.DelaySeconds
+	}
+	return windowSeconds > 0, windowSeconds, delaySeconds
 }
 
 // CommandPattern is an argv prefix to match. In YAML it may be written as a
@@ -179,15 +200,37 @@ type Match struct {
 	Shells []ir.Shell `yaml:"shells"`
 	// Path makes this a FILE-EDIT rule instead of a command rule: it matches when
 	// a file-editing tool (Edit/Write/MultiEdit/NotebookEdit) targets a file whose
-	// path matches one of these glob patterns. A pattern matches the file's
-	// basename or its full slash-path (path.Match globbing). e.g. `path: [VERSION]`
-	// blocks hand-editing VERSION. A rule is either a command rule or a path rule,
-	// never both.
+	// path matches one of these patterns. A rule is either a command rule or a path
+	// rule, never both. Each pattern is one of three forms:
+	//
+	//   - a glob (Go path.Match), matched against the file's basename or its full
+	//     slash-path. e.g. `VERSION` blocks hand-editing VERSION anywhere; `*.lock`
+	//     blocks any lockfile; `dist/*` blocks one level under dist/.
+	//   - a directory subtree, written with a trailing slash: `vendor/` blocks
+	//     every file under any directory named vendor, at any depth. The segments
+	//     are matched literally (not globbed) and bounded on slashes, so `a/b/`
+	//     matches `…/a/b/x` and `…/a/b/c/x` but not `…/ab/x`. This is how you
+	//     "prohibit writes to a directory".
+	//   - the sentinel "@submodules", which Config.ExpandSubmodules rewrites into a
+	//     directory-subtree pattern for every path in .gitmodules — so one rule
+	//     blocks edits inside all git submodules without naming them. Left
+	//     unexpanded (no .gitmodules) it matches nothing.
 	Path []string `yaml:"path"`
 }
 
+// submodulesToken is the reserved match.path value that ExpandSubmodules rewrites
+// into a directory-subtree pattern per .gitmodules entry. See Match.Path.
+const submodulesToken = "@submodules"
+
 // isPathRule reports whether this match targets file edits rather than commands.
 func (m Match) isPathRule() bool { return len(m.Path) > 0 }
+
+// mixesCommandAndPath reports whether a path rule also carries command-style
+// conditions, which is a config error: a rule is one kind or the other.
+func (m Match) mixesCommandAndPath() bool {
+	return m.isPathRule() && (len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
+		len(m.ArgsAll) > 0 || len(m.Unless) > 0 || len(m.Shells) > 0)
+}
 
 func (m Match) hasConstraint() bool {
 	return len(m.Command) > 0 || len(m.ArgsAny) > 0 ||
@@ -196,23 +239,74 @@ func (m Match) hasConstraint() bool {
 }
 
 // matchesPath reports whether a file-edit of file is caught by this path rule.
-// Each pattern is matched against the file's full slash-path and its basename,
-// so `VERSION` catches `/proj/VERSION` and `*.lock` catches `a/b/x.lock`.
+// Patterns are full globs (doublestar: `*`, `?`, `[…]`, `{a,b}`, and `**` which
+// spans directories). Because editing tools pass absolute paths, each pattern is
+// tried three ways so repo-relative patterns still fire:
+//
+//   - against the basename, so `*.lock` catches `/proj/a/b/x.lock`;
+//   - against the full slash-path, so an absolute or exact pattern works;
+//   - against the full path with an implicit `**/` prefix, so a repo-relative
+//     pattern like `src/**/*.go` matches `/proj/src/a/b.go` and `dist/*` matches
+//     `/proj/dist/x` (but not the deeper `dist/x/y`, since `*` stops at `/`).
+//
+// A trailing slash is directory sugar: `vendor/` means the whole subtree, i.e.
+// `vendor/**`. The "@submodules" sentinel is inert here — ExpandSubmodules
+// rewrites it into directory patterns first, and an unexpanded one matches nothing.
 func (m Match) matchesPath(file string) bool {
 	file = strings.ReplaceAll(strings.TrimSpace(file), "\\", "/")
+	if file == "" {
+		return false
+	}
 	base := path.Base(file)
 	for _, pat := range m.Path {
-		if pat == file {
-			return true
+		if pat == submodulesToken {
+			continue // unexpanded sentinel; expand via ExpandSubmodules
 		}
-		if ok, _ := path.Match(pat, base); ok {
-			return true
+		if strings.HasSuffix(pat, "/") {
+			pat = strings.TrimRight(pat, "/") + "/**" // directory subtree
 		}
-		if ok, _ := path.Match(pat, file); ok {
+		if globMatch(pat, base) || globMatch(pat, file) || globMatch("**/"+pat, file) {
 			return true
 		}
 	}
 	return false
+}
+
+// globMatch reports whether name matches the doublestar pattern, treating a
+// malformed pattern as no-match (validation surfaces such patterns elsewhere).
+func globMatch(pattern, name string) bool {
+	ok, err := doublestar.Match(pattern, name)
+	return ok && err == nil
+}
+
+// ExpandSubmodules rewrites the "@submodules" sentinel in every path rule into a
+// directory-subtree pattern (one per submodule path), so a rule written as
+// `path: ["@submodules"]` blocks edits inside all of a repo's git submodules
+// without naming them. submodulePaths come from .gitmodules (see internal/scm).
+// With none, the sentinel is dropped — a rule left with no patterns matches
+// nothing (fail-open). Other patterns in the same list are preserved in place.
+func (c *Config) ExpandSubmodules(submodulePaths []string) {
+	var dirs []string
+	for _, p := range submodulePaths {
+		if p = strings.Trim(strings.ReplaceAll(p, "\\", "/"), "/"); p != "" {
+			dirs = append(dirs, p+"/")
+		}
+	}
+	for i := range c.Rules {
+		pats := c.Rules[i].Match.Path
+		if !slices.Contains(pats, submodulesToken) {
+			continue
+		}
+		expanded := make([]string, 0, len(pats)+len(dirs))
+		for _, pat := range pats {
+			if pat == submodulesToken {
+				expanded = append(expanded, dirs...)
+			} else {
+				expanded = append(expanded, pat)
+			}
+		}
+		c.Rules[i].Match.Path = expanded
+	}
 }
 
 func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
@@ -405,6 +499,26 @@ func (c *Config) normalizeAndValidate() error {
 		if err := validateRule(&c.Rules[i], i, seen); err != nil {
 			return err
 		}
+		if err := validateConfirmDelay(&c.Rules[i], c.Defaults); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateConfirmDelay rejects a delay_seconds that can never be satisfied: it
+// needs a positive confirm window to live in, and must be shorter than it (the
+// repeat is honored only in the band [delay, window] after the first denial).
+func validateConfirmDelay(r *Rule, d Defaults) error {
+	repeatable, window, delay := r.confirmPolicy(d)
+	if delay <= 0 {
+		return nil
+	}
+	if !repeatable {
+		return fmt.Errorf("rule %q: delay_seconds needs a confirm window (set window_seconds or defaults.repeat_window_seconds)", r.ID)
+	}
+	if delay >= window {
+		return fmt.Errorf("rule %q: delay_seconds (%d) must be less than the confirm window (%d)", r.ID, delay, window)
 	}
 	return nil
 }
@@ -428,16 +542,33 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 		return fmt.Errorf("rule %q: match has no conditions", r.ID)
 	}
 	// A rule is either a command rule or a file-edit (path) rule, not both.
-	if r.Match.isPathRule() && (len(r.Match.Command) > 0 || len(r.Match.ArgsAny) > 0 ||
-		len(r.Match.ArgsAll) > 0 || len(r.Match.Unless) > 0 || len(r.Match.Shells) > 0) {
+	if r.Match.mixesCommandAndPath() {
 		return fmt.Errorf("rule %q: match.path cannot be combined with command/args/shells", r.ID)
 	}
 	if slices.Contains(r.Match.Command, "") {
 		return fmt.Errorf("rule %q: empty token in match.command", r.ID)
 	}
+	if err := validatePathPatterns(r.Match.Path); err != nil {
+		return fmt.Errorf("rule %q: %w", r.ID, err)
+	}
 	for _, sh := range r.Match.Shells {
 		if !sh.Valid() {
 			return fmt.Errorf("rule %q: unknown shell %q in match.shells", r.ID, sh)
+		}
+	}
+	return nil
+}
+
+// validatePathPatterns checks that each match.path entry is a well-formed glob.
+// The submodules sentinel is exempt (it is expanded before evaluation); a
+// trailing slash is directory sugar for `/**` and is stripped before checking.
+func validatePathPatterns(patterns []string) error {
+	for _, pat := range patterns {
+		if pat == "" {
+			return fmt.Errorf("empty pattern in match.path")
+		}
+		if pat != submodulesToken && !doublestar.ValidatePattern(strings.TrimRight(pat, "/")) {
+			return fmt.Errorf("invalid glob in match.path: %q", pat)
 		}
 	}
 	return nil

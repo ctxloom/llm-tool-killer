@@ -125,6 +125,7 @@ func (w *world) applyOverride(command string, now time.Time) (engine.Response, b
 		return w.resp, false
 	}
 	return state.ConfirmByRepeat(w.fs, w.resp, command, w.stateFile, now,
+		time.Duration(w.resp.ConfirmDelaySeconds)*time.Second,
 		time.Duration(w.resp.ConfirmWindowSeconds)*time.Second)
 }
 
