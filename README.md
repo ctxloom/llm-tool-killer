@@ -207,11 +207,15 @@ directory) and installs there:
 ltk manage install               # detect engine; write its config + .ltk/config.yaml
 ltk manage install --global      # user-level config instead of project
 ltk manage install --print       # dry run: show the merged config, write nothing
+ltk manage install --force       # overwrite existing rules (old file kept as .bak)
 ltk manage uninstall             # cleanly remove the hook again (exact inverse)
 ```
 
 `install` merges the hook **non-destructively** (your other settings are
-preserved) and writes a starter `.ltk/config.yaml` you can edit and commit. The
+preserved). An existing `.ltk/config.yaml` is **never overwritten** — install
+warns and keeps your edited rules; pass `--force` to replace them (the old file
+is backed up to `.ltk/config.yaml.bak` first). On a fresh project it writes a
+starter `.ltk/config.yaml` you can edit and commit. The
 starter is ltk's shipped default rule set (documented in
 [docs/DEFAULTS.md](docs/DEFAULTS.md)); pass `--no-default-rules` for an empty one.
 

@@ -29,6 +29,7 @@ type manageFlags struct {
 	global         bool
 	printOnly      bool
 	noDefaultRules bool
+	force          bool
 }
 
 func (f *manageFlags) bind(c *cobra.Command) {
@@ -39,6 +40,7 @@ func (f *manageFlags) bind(c *cobra.Command) {
 	c.Flags().BoolVar(&f.global, "global", false, "target the user-level config instead of the project")
 	c.Flags().BoolVar(&f.printOnly, "print", false, "print the resulting config to stdout instead of writing")
 	c.Flags().BoolVar(&f.noDefaultRules, "no-default-rules", false, "scaffold an empty rules file instead of the shipped defaults")
+	c.Flags().BoolVar(&f.force, "force", false, "overwrite an existing rules file (a .bak backup is written first)")
 }
 
 // resolve picks the engine and its settings path.
@@ -79,7 +81,7 @@ func newInstallCmd() *cobra.Command {
 			}
 			command := eng.HookCommand(f.bin, f.configPath)
 			if f.configPath != "" {
-				if err := scaffoldConfig(f.configPath, !f.noDefaultRules); err != nil {
+				if err := scaffoldConfig(f.configPath, !f.noDefaultRules, f.force); err != nil {
 					return err
 				}
 			}
@@ -145,11 +147,21 @@ func newUninstallCmd() *cobra.Command {
 	return c
 }
 
-// scaffoldConfig writes a rules file if one does not already exist: the shipped
-// defaults, or (with withDefaults=false) a minimal empty config.
-func scaffoldConfig(path string, withDefaults bool) error {
+// scaffoldConfig writes a starter rules file. An existing file is NOT
+// overwritten unless force is set — your edited rules are never silently
+// clobbered. Without force, an existing file is kept and a warning explains how
+// to overwrite. With force, the old file is backed up to <path>.bak first.
+func scaffoldConfig(path string, withDefaults, force bool) error {
 	if _, err := os.Stat(path); err == nil {
-		return nil // leave the user's rules alone
+		if !force {
+			fmt.Fprintf(os.Stderr, "%s: %s already exists — keeping your rules (use --force to overwrite; the old file is backed up to %s.bak)\n", progName, path, path)
+			return nil
+		}
+		backup := path + ".bak"
+		if err := copyFile(path, backup); err != nil {
+			return fmt.Errorf("back up %s: %w", path, err)
+		}
+		fmt.Fprintf(os.Stderr, "%s: backed up existing rules to %s before overwriting\n", progName, backup)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -163,8 +175,17 @@ func scaffoldConfig(path string, withDefaults bool) error {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write rules file %s: %w", path, err)
 	}
-	fmt.Fprintf(os.Stderr, progName+": wrote rules file %s (edit it to taste)\n", path)
+	fmt.Fprintf(os.Stderr, "%s: wrote rules file %s (edit it to taste)\n", progName, path)
 	return nil
+}
+
+// copyFile copies src to dst, preserving contents (used for the --force backup).
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o644)
 }
 
 func readIfExists(path string) ([]byte, error) {
