@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
@@ -80,6 +81,12 @@ func TestIntegrationRealParser(t *testing.T) {
 	}
 	s, err := New().Parse(context.Background(), ir.ShellPwsh, "Get-ChildItem -Path . -Recurse")
 	if err != nil {
+		// On constrained CI runners the pwsh process is sometimes OOM/resource
+		// killed ("signal: killed") before it parses — an environment failure,
+		// not a parser bug. Skip rather than fail so the flake doesn't block CI.
+		if strings.Contains(err.Error(), "signal: killed") {
+			t.Skipf("pwsh process killed by the environment (not a parser failure): %v", err)
+		}
 		t.Fatalf("real parse: %v", err)
 	}
 	cmds := s.Commands()

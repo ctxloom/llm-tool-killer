@@ -136,6 +136,15 @@ each `engine.Adapter` absorbs:
   `manage` and `evaluate` already dispatch polymorphically, so each is purely
   additive. **Vote 👍 on the issues to prioritize.**
 - More `match` operators.
+- **Pre-write hooks — document & expose the file-write surface.** `match.path`
+  rules already gate file edits (Edit/Write/MultiEdit/NotebookEdit), but the
+  pre-write surface is under-documented and not deliberately exposed as a
+  first-class feature alongside command rules. TODO: document the file-write
+  hook path end to end (matcher wiring, payload, `match.path` semantics) and
+  surface it in the README/quickstart, not just the rules reference. **First
+  concrete target: blocking `git submodule`** — both the command form
+  (`git submodule add`) and edits to `.gitmodules` — as a worked example and a
+  candidate shipped default.
 
 Done: POSIX-shell frontend, real **pwsh** frontend (native parser), **cmd**
 frontend (hand-written lexer), rule engine, Claude Code engine (`evaluate` +
