@@ -18,6 +18,9 @@ coverage.*
 .ctxloom/ephemeral/
 .ctxloom/cache/
 
+# ctxloom private project identity (working state, never distributed)
+.ctxloom/project-id
+
 # Claude Code harness runtime state (scheduled-task lock, etc.)
 .claude/scheduled_tasks.lock
 
