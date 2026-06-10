@@ -66,6 +66,11 @@ fmt:
 vet:
     go vet ./...
 
+# golangci-lint (v2, pinned via go.mod tool directive; config in .golangci.yml).
+# Includes errcheck with the std-error-handling exclusions.
+lint:
+    go tool golangci-lint run
+
 # Cyclomatic complexity gate (gocyclo, pinned via go.mod tool directive).
 # Reports any function whose complexity exceeds 15.
 complexity:
@@ -91,8 +96,8 @@ defaults-check:
 hooks:
     lefthook install
 
-# Full pre-commit gate: format check, vet, complexity, defaults sync, tests.
-check: fmt-check vet complexity defaults-check test
+# Full pre-commit gate: format check, vet, lint, complexity, defaults sync, tests.
+check: fmt-check vet lint complexity defaults-check test
 
 # Build then run the bundled smoke checks against examples/rules.yaml.
 smoke: build

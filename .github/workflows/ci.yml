@@ -46,8 +46,9 @@ jobs:
 
       - uses: extractions/setup-just@v2
 
-      # fmt-check + vet + complexity (gocyclo via go.mod tool directive) +
-      # defaults-sync + tests, including the README-driven acceptance suite.
+      # fmt-check + vet + lint (golangci-lint via go.mod tool directive) +
+      # complexity (gocyclo, same mechanism) + defaults-sync + tests, including
+      # the README-driven acceptance suite.
       # versionator isn't on PATH here; the justfile falls back to version "dev".
       - name: just check
         run: just check

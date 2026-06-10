@@ -1,10 +1,24 @@
 # llm-tool-killer git hooks (lefthook). Enable once with: just hooks
 #
-# The shipped default rules (cmd/ltk/sample.ltk.yaml, embedded in the binary) are
-# generated from docs/DEFAULTS.md. This hook regenerates and fails the commit if
-# they drift, so the documented defaults and the shipped file never disagree.
+# Piped (sequential, stop on first failure) so the formatter runs before the
+# linter reads the tree. format auto-fixes and re-stages; the rest only check.
+#
+# defaults-in-sync: the shipped default rules (cmd/ltk/sample.ltk.yaml, embedded
+# in the binary) are generated from docs/DEFAULTS.md. The hook fails the commit
+# if they drift, so the documented defaults and the shipped file never disagree.
 pre-commit:
+  piped: true
   commands:
+    format:
+      priority: 1
+      glob: "*.go"
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    lint:
+      priority: 2
+      glob: "*.go"
+      run: go tool golangci-lint run
     defaults-in-sync:
+      priority: 3
       glob: "{docs/DEFAULTS.md,cmd/ltk/sample.ltk.yaml,tools/extract-defaults/*.go}"
       run: go run ./tools/extract-defaults -check
