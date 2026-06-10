@@ -82,6 +82,48 @@ func TestSavePrunesExpired(t *testing.T) {
 	}
 }
 
+// Save replaces an existing file in full and leaves no temp files behind (it
+// writes to a sibling temp file and renames, so a concurrent reader never sees
+// a half-written store).
+func TestSaveReplacesAtomicallyWithoutLeftovers(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := filepath.Join(".ltk", "state.json")
+	now := time.Unix(3_000_000, 0)
+
+	s := Open(fs, path)
+	s.Arm("first", now, 0, 30*time.Second)
+	if err := s.Save(now); err != nil {
+		t.Fatal(err)
+	}
+	s.Arm("second", now, 0, 30*time.Second)
+	if err := s.Save(now); err != nil {
+		t.Fatal(err)
+	}
+
+	s2 := Open(fs, path)
+	if !s2.Armed("first", now) || !s2.Armed("second", now) {
+		t.Error("re-saved store must carry both entries")
+	}
+	infos, err := afero.ReadDir(fs, filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fi := range infos {
+		if fi.Name() != filepath.Base(path) {
+			t.Errorf("unexpected leftover file %q after Save", fi.Name())
+		}
+	}
+}
+
+// Save surfaces write failures to the caller (who treats them as best-effort).
+func TestSaveOnReadOnlyFsErrors(t *testing.T) {
+	s := Open(afero.NewReadOnlyFs(afero.NewMemMapFs()), filepath.Join(".ltk", "state.json"))
+	s.Arm("go test", time.Unix(1, 0), 0, 30*time.Second)
+	if err := s.Save(time.Unix(1, 0)); err == nil {
+		t.Error("Save on a read-only filesystem must error")
+	}
+}
+
 func TestOpenMissingFileIsEmpty(t *testing.T) {
 	s := Open(afero.NewMemMapFs(), "nope.json")
 	if s.Armed("anything", time.Unix(1, 0)) {

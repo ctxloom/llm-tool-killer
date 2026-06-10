@@ -52,6 +52,18 @@ rules:
   - id: no-killall
     match: { command: killall }
     message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."
+  - id: no-encoded-command-pwsh
+    match:
+      command: [pwsh]
+      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
+    suggest: "pwsh -Command '<the same script, unencoded>'"
+  - id: no-encoded-command-powershell
+    match:
+      command: [powershell]
+      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
+    suggest: "powershell -Command '<the same script, unencoded>'"
   - id: no-edit-submodules
     match: { path: ["@submodules"] }
     message: "This file is inside a git submodule (a pinned, separate repo). Edit it in that submodule's own repo and commit there — never from the superproject. This is firm; there is no override."

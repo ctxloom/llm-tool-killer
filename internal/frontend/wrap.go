@@ -20,6 +20,7 @@ type wrapperRule struct {
 	programs []string // argv[0] basename (lowercased)
 	flag     string   // flag whose argument(s) are the inner command; "" = eval-style (all args)
 	joinRest bool     // true: inner = all args after the flag joined; false: the single arg after it
+	caseFold bool     // true: flag matches case-insensitively (cmd switches, pwsh parameters); POSIX flags are case-sensitive (-c ≠ -C)
 }
 
 // wrapperRules covers the common shell wrappers. Inner-command shell is derived
@@ -27,9 +28,12 @@ type wrapperRule struct {
 var wrapperRules = []wrapperRule{
 	{programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"}, flag: "-c", joinRest: false},
 	{programs: []string{"eval"}, flag: "", joinRest: true},
-	{programs: []string{"cmd", "cmd.exe"}, flag: "/c", joinRest: true},
-	{programs: []string{"cmd", "cmd.exe"}, flag: "/k", joinRest: true},
-	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-command", joinRest: false},
+	{programs: []string{"cmd", "cmd.exe"}, flag: "/c", joinRest: true, caseFold: true},
+	{programs: []string{"cmd", "cmd.exe"}, flag: "/k", joinRest: true, caseFold: true},
+	// PowerShell joins everything after -Command into one command line; -c is
+	// its documented shorthand.
+	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-command", joinRest: true, caseFold: true},
+	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-c", joinRest: true, caseFold: true},
 }
 
 // ExpandWrappers re-parses the inner command of any trivial shell wrapper it
@@ -93,7 +97,7 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 		return strings.Join(args, " "), true
 	}
 	for i, a := range args {
-		if !strings.EqualFold(a, rule.flag) {
+		if !rule.flagMatches(a) {
 			continue
 		}
 		rest := args[i+1:]
@@ -106,6 +110,15 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 		return rest[0], true
 	}
 	return "", false
+}
+
+// flagMatches reports whether arg is this rule's wrapper flag, folding case
+// only where the host shell does (cmd switches, pwsh parameters).
+func (rule wrapperRule) flagMatches(arg string) bool {
+	if rule.caseFold {
+		return strings.EqualFold(arg, rule.flag)
+	}
+	return arg == rule.flag
 }
 
 // innerShell maps a wrapper program to the shell its inner command is written

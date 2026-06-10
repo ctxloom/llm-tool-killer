@@ -61,27 +61,52 @@ by hand.`,
 	return c
 }
 
+// runEvaluate is the process edge around evaluate: it feeds it stdin, writes
+// the resulting streams, and exits non-zero when the engine's protocol demands
+// it (a zero exit is a normal return, so deferred cleanup runs).
 func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
-	adapter, err := engine.Get(engineName)
+	out, err := evaluate(engineName, cfgPath, forceShell, os.Stdin)
 	if err != nil {
 		return err
 	}
+	if len(out.Stdout) > 0 {
+		if _, err := os.Stdout.Write(out.Stdout); err != nil {
+			return fmt.Errorf("write decision: %w", err)
+		}
+	}
+	if len(out.Stderr) > 0 {
+		os.Stderr.Write(out.Stderr)
+	}
+	if out.ExitCode != 0 {
+		os.Exit(out.ExitCode)
+	}
+	return nil
+}
+
+// evaluate runs the full decision path — decode the hook payload, parse the
+// command, match the rules, encode the engine's wire output — with no process
+// concerns, so it is testable end to end.
+func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) (engine.Output, error) {
+	adapter, err := engine.Get(engineName)
+	if err != nil {
+		return engine.Output{}, err
+	}
 	cfg, resolved, err := loadConfig(cfgPath)
 	if err != nil {
-		return err
+		return engine.Output{}, err
 	}
 	// Resolve the `@submodules` path sentinel against this repo's .gitmodules, so
 	// a rule can block edits inside every submodule without naming them.
 	if wd, err := os.Getwd(); err == nil {
 		cfg.ExpandSubmodules(scm.SubmodulePaths(afero.NewOsFs(), wd))
 	}
-	input, err := io.ReadAll(os.Stdin)
+	input, err := io.ReadAll(stdin)
 	if err != nil {
-		return fmt.Errorf("read stdin: %w", err)
+		return engine.Output{}, fmt.Errorf("read stdin: %w", err)
 	}
 	req, err := adapter.Decode(input)
 	if err != nil {
-		return fmt.Errorf("decode hook input: %w", err)
+		return engine.Output{}, fmt.Errorf("decode hook input: %w", err)
 	}
 
 	a := app.New(cfg)
@@ -106,16 +131,9 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 
 	out, err := adapter.Encode(resp)
 	if err != nil {
-		return fmt.Errorf("encode decision: %w", err)
+		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
-	if len(out.Stdout) > 0 {
-		os.Stdout.Write(out.Stdout)
-	}
-	if len(out.Stderr) > 0 {
-		os.Stderr.Write(out.Stderr)
-	}
-	os.Exit(out.ExitCode)
-	return nil
+	return out, nil
 }
 
 // confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
@@ -129,13 +147,16 @@ func confirmByRepeat(resp engine.Response, command, stateFile string, delay, win
 	return out
 }
 
-// statePath puts the override state next to the resolved config (e.g. in .ltk/),
-// or under .ltk/ in the cwd when the config location is unknown.
+// statePath puts the override state next to the resolved config when that
+// config lives in a .ltk directory; otherwise (legacy flat configs, custom
+// paths, or no config at all) it falls back to .ltk/state.json in the cwd.
+// Runtime state always lives inside a .ltk directory, never loose in the
+// project root, so .gitignore's ".ltk/state.json" entry covers it.
 func statePath(configPath string) string {
-	if configPath == "" {
-		return filepath.Join(configDir, stateBase)
+	if dir := filepath.Dir(configPath); filepath.Base(dir) == configDir {
+		return filepath.Join(dir, stateBase)
 	}
-	return filepath.Join(filepath.Dir(configPath), stateBase)
+	return filepath.Join(configDir, stateBase)
 }
 
 // loadConfig loads the given path, or searches the default locations, returning

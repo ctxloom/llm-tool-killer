@@ -166,6 +166,34 @@ the wrong PID, your editor, or a sibling agent. Target a specific PID instead.
     message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."
 ```
 
+## Don't run commands the gate can't read
+
+`pwsh -EncodedCommand` takes a Base64-encoded script, so neither a human
+skimming the transcript nor ltk's wrapper expansion can see what it actually
+runs — it is the classic way a denied command slips past inspection. There is
+no agent workflow that needs it: the same command passed plainly via
+`-Command` works and stays inspectable. Both rules ship firm (`enable`).
+The `args_any` list covers the documented aliases (`-e`, `-ec`, `-enc`) and the
+common casings (argument matching is literal).
+
+```yaml
+  - id: no-encoded-command-pwsh
+    match:
+      command: [pwsh]
+      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
+    suggest: "pwsh -Command '<the same script, unencoded>'"
+```
+
+```yaml
+  - id: no-encoded-command-powershell
+    match:
+      command: [powershell]
+      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
+    suggest: "powershell -Command '<the same script, unencoded>'"
+```
+
 ## Don't disturb pinned git submodules
 
 These are **file-edit** rules (`match.path`), not command rules — they gate the

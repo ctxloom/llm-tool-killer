@@ -57,11 +57,17 @@ func TestClaudeCodeEncodeDeny(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	if _, err := Get("claude-code"); err != nil {
-		t.Errorf("claude-code should resolve: %v", err)
+	for _, name := range []string{"claude-code", "claudecode", "claude", "CLAUDE-CODE"} {
+		if _, err := Get(name); err != nil {
+			t.Errorf("%q should resolve: %v", name, err)
+		}
 	}
-	if _, err := Get("nope"); err == nil {
-		t.Error("unknown engine should error")
+	// Names resolve exactly (plus declared aliases) — a bare prefix is not a
+	// match, so a typo can't silently pick an engine.
+	for _, name := range []string{"nope", "c", "cl", ""} {
+		if _, err := Get(name); err == nil {
+			t.Errorf("%q should not resolve to an engine", name)
+		}
 	}
 }
 

@@ -28,8 +28,11 @@ type pending struct {
 	Expiry    int64 `json:"expiry"`
 }
 
-// Store is a tiny on-disk map of command → armed override. It is best-effort and
-// not concurrency-safe; hooks run effectively one at a time.
+// Store is a tiny on-disk map of command → armed override. It is best-effort:
+// concurrent hook invocations (agents can issue parallel tool calls) may race
+// the read-modify-write and lose an arm, but Save writes atomically (temp file
+// + rename), so a reader never sees a torn file. Losing an arm fails safe — the
+// denial just repeats and re-arms.
 type Store struct {
 	fs      afero.Fs
 	path    string
@@ -89,6 +92,8 @@ func (s *Store) Arm(cmd string, now time.Time, delay, window time.Duration) {
 func (s *Store) Clear(cmd string) { delete(s.Pending, cmd) }
 
 // Save prunes expired entries and writes the store, creating its directory.
+// The write is atomic (a sibling temp file renamed into place), so a concurrent
+// reader sees either the old store or the new one, never a torn file.
 func (s *Store) Save(now time.Time) error {
 	for c, p := range s.Pending {
 		if now.Unix() >= p.Expiry {
@@ -102,5 +107,24 @@ func (s *Store) Save(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return afero.WriteFile(s.fs, s.path, b, 0o644)
+	// A unique temp name keeps two concurrent Saves from renaming each other's
+	// half-written file.
+	tmp, err := afero.TempFile(s.fs, filepath.Dir(s.path), filepath.Base(s.path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		_ = s.fs.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = s.fs.Remove(tmp.Name())
+		return err
+	}
+	if err := s.fs.Rename(tmp.Name(), s.path); err != nil {
+		_ = s.fs.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }

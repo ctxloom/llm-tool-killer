@@ -75,6 +75,53 @@ func TestExpandWrappers_CmdSlashC(t *testing.T) {
 	}
 }
 
+func TestExpandWrappers_PwshCommand(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellPwsh}}
+	r := newReg(f)
+	// PowerShell joins everything after -Command into one command line, so the
+	// inner command must be re-parsed with all its arguments, not just the first.
+	s := cmdScript(ir.ShellPwsh, "pwsh", "-Command", "rm", "-rf", "build")
+	r.ExpandWrappers(context.Background(), s)
+	want := "pwsh|rm -rf build"
+	if !contains(f.seen, want) {
+		t.Errorf("inner command should carry all args; want parse of %q, seen=%v", want, f.seen)
+	}
+}
+
+func TestExpandWrappers_PwshDashCAbbreviation(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellPwsh}}
+	r := newReg(f)
+	// pwsh documents -c as shorthand for -Command; agents use it routinely.
+	s := cmdScript(ir.ShellPwsh, "pwsh", "-c", "git", "tag", "v1")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Errorf("pwsh -c inner not surfaced; programs=%v", got)
+	}
+}
+
+func TestExpandWrappers_CmdUpperSlashC(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellCmd}}
+	r := newReg(f)
+	// cmd switches are case-insensitive: /C must work like /c.
+	s := cmdScript(ir.ShellCmd, "cmd", "/C", "git tag v1")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Errorf("cmd /C inner not surfaced; programs=%v", got)
+	}
+}
+
+func TestExpandWrappers_BashUpperCIsNotCommandFlag(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	// POSIX flags are case-sensitive: bash -C sets noclobber and takes no
+	// argument, so script.sh must not be re-parsed as an inner command.
+	s := cmdScript(ir.ShellBash, "bash", "-C", "script.sh")
+	r.ExpandWrappers(context.Background(), s)
+	if len(f.seen) != 0 {
+		t.Errorf("bash -C is not a command wrapper; seen=%v", f.seen)
+	}
+}
+
 func TestExpandWrappers_NotAWrapper(t *testing.T) {
 	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
 	r := newReg(f)

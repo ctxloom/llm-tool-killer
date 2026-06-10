@@ -104,20 +104,26 @@ func engines() []Engine {
 	return []Engine{ClaudeCode{}}
 }
 
-// Get returns the engine for a name.
+// engineAliases maps accepted alternate spellings to canonical engine names.
+var engineAliases = map[string]string{
+	"claudecode": "claude-code",
+	"claude":     "claude-code",
+}
+
+// Get returns the engine for a name: the canonical name or a declared alias,
+// case-insensitively. There is no prefix matching — a typo must error rather
+// than silently pick an engine.
 func Get(name string) (Engine, error) {
 	want := strings.ToLower(name)
+	if canonical, ok := engineAliases[want]; ok {
+		want = canonical
+	}
 	for _, e := range engines() {
-		if e.Name() == want || strings.HasPrefix(e.Name(), want) {
+		if e.Name() == want {
 			return e, nil
 		}
 	}
-	switch want {
-	case "claude-code", "claudecode", "claude":
-		return ClaudeCode{}, nil
-	default:
-		return nil, fmt.Errorf("unknown engine %q", name)
-	}
+	return nil, fmt.Errorf("unknown engine %q", name)
 }
 
 // Detect returns the most relevant engine for the project at dir, or ok=false

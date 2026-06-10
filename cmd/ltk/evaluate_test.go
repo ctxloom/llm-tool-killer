@@ -3,12 +3,84 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctxloom/llm-tool-killer/internal/engine"
 )
+
+// evaluate is the full decision path (decode → parse → rules → encode) minus
+// process concerns (stdin, stream writes, exit), so it is testable end to end.
+func TestEvaluateDeniesAndAllows(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	cfg := `version: 1
+rules:
+  - id: no-force-push
+    match: { command: [git, push, --force] }
+    message: "no force pushes"
+    suggest: "git push --force-with-lease"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := func(command string) string {
+		return `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
+	}
+
+	t.Run("denied command produces a deny decision on stdout", func(t *testing.T) {
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload("git push --force")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.ExitCode != 0 {
+			t.Errorf("claude-code denials exit 0, got %d", out.ExitCode)
+		}
+		if !strings.Contains(string(out.Stdout), `"deny"`) || !strings.Contains(string(out.Stdout), "no force pushes") {
+			t.Errorf("stdout should carry the deny decision and reason, got %s", out.Stdout)
+		}
+	})
+
+	t.Run("allowed command writes nothing", func(t *testing.T) {
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload("git status")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Stdout) != 0 || len(out.Stderr) != 0 || out.ExitCode != 0 {
+			t.Errorf("allow must be a zero Output (pass-through), got %+v", out)
+		}
+	})
+
+	t.Run("unreadable payload is an error", func(t *testing.T) {
+		if _, err := evaluate("claude-code", cfgPath, "", strings.NewReader("not json")); err == nil {
+			t.Error("malformed payload should surface as an error")
+		}
+	})
+}
+
+// Override state lives inside a .ltk directory: next to the config when the
+// config is already in one, otherwise .ltk/state.json in the cwd — never loose
+// in the repo root (legacy flat configs like .ltk.yaml used to cause that).
+func TestStatePath(t *testing.T) {
+	tests := []struct {
+		name, config, want string
+	}{
+		{"ltk dir layout", filepath.Join(".ltk", "config.yaml"), filepath.Join(".ltk", "state.json")},
+		{"absolute ltk dir", filepath.Join("/home/u/proj", ".ltk", "config.yaml"), filepath.Join("/home/u/proj", ".ltk", "state.json")},
+		{"legacy flat config", ".ltk.yaml", filepath.Join(".ltk", "state.json")},
+		{"named flat config", "llm-tool-killer.yaml", filepath.Join(".ltk", "state.json")},
+		{"nested non-ltk config", filepath.Join(".config", "llm-tool-killer.yaml"), filepath.Join(".ltk", "state.json")},
+		{"no config resolved", "", filepath.Join(".ltk", "state.json")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := statePath(tt.config); got != tt.want {
+				t.Errorf("statePath(%q) = %q, want %q", tt.config, got, tt.want)
+			}
+		})
+	}
+}
 
 // confirmByRepeat implements "run it again to permit": the first denial is
 // remembered, and an identical re-run within the window is allowed.

@@ -35,8 +35,8 @@ type App struct {
 func New(cfg *rules.Config) *App {
 	reg := frontend.NewRegistry()
 	reg.Register(shell.New()) // sh, bash, zsh, mksh
-	reg.Register(pwsh.New())  // stub
-	reg.Register(cmd.New())   // stub
+	reg.Register(pwsh.New())  // pwsh (defers to PowerShell's own parser)
+	reg.Register(cmd.New())   // cmd.exe
 	return &App{Config: cfg, Registry: reg, DefaultShell: ir.ShellBash}
 }
 

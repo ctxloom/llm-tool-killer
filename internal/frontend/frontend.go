@@ -15,11 +15,6 @@ import (
 // ErrUnsupportedShell is returned when no frontend is registered for a shell.
 var ErrUnsupportedShell = errors.New("unsupported shell")
 
-// ErrNotImplemented is returned by a frontend that is registered but cannot yet
-// parse its shell (e.g. a stub). Callers should treat it like a parse error and
-// apply their on_parse_error policy.
-var ErrNotImplemented = errors.New("frontend not implemented")
-
 // Frontend parses raw command strings for one or more shell dialects into the
 // common Command-Graph IR.
 type Frontend interface {
@@ -27,8 +22,8 @@ type Frontend interface {
 	Shells() []ir.Shell
 	// Parse lowers src for the given shell into a Script. The shell is always
 	// one returned by Shells. On a parse error a frontend should still return a
-	// non-nil Script (with Flags.Unparsed set) alongside the error so callers
-	// can apply an on_parse_error policy.
+	// non-nil (possibly empty) Script alongside the error so callers can apply
+	// an on_parse_error policy.
 	Parse(ctx context.Context, shell ir.Shell, src string) (*ir.Script, error)
 }
 
