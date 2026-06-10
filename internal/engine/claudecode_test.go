@@ -43,7 +43,13 @@ func TestClaudeCodeEncodeDeny(t *testing.T) {
 	if out.ExitCode != 0 {
 		t.Errorf("Claude Code deny uses exit 0 + JSON, got exit %d", out.ExitCode)
 	}
-	var decoded ccOutput
+	var decoded struct {
+		HookSpecificOutput struct {
+			HookEventName            string `json:"hookEventName"`
+			PermissionDecision       string `json:"permissionDecision"`
+			PermissionDecisionReason string `json:"permissionDecisionReason"`
+		} `json:"hookSpecificOutput"`
+	}
 	if err := json.Unmarshal(out.Stdout, &decoded); err != nil {
 		t.Fatalf("output not valid JSON: %v", err)
 	}

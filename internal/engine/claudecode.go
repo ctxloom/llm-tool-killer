@@ -8,42 +8,38 @@ import (
 	"path/filepath"
 	"strings"
 
+	claudecli "github.com/ctxloom/claude"
+
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
 
-// ClaudeCode adapts the Claude Code PreToolUse hook protocol.
+// ClaudeCode adapts the Claude Code PreToolUse hook protocol. The wire types
+// — stdin payload, decision JSON — live in the shared github.com/ctxloom/claude
+// module (the org's single source of truth for the contract); this adapter
+// only maps them onto ltk's Request/Response.
 //
-// Input (stdin) is the hook payload; we read tool_name and tool_input.command.
-// Output (stdout) for a denial is a hookSpecificOutput object with
-// permissionDecision "deny". An allow writes nothing and exits 0, letting the
-// normal permission flow proceed.
+// A denial is a hookSpecificOutput object with permissionDecision "deny" on
+// stdout. An allow writes nothing and exits 0, letting the normal permission
+// flow proceed.
 type ClaudeCode struct{}
 
 // Name returns the engine identifier.
 func (ClaudeCode) Name() string { return "claude-code" }
-
-type ccInput struct {
-	ToolName  string `json:"tool_name"`
-	ToolInput struct {
-		Command  string `json:"command"`   // Bash/PowerShell
-		FilePath string `json:"file_path"` // Edit/Write/MultiEdit/NotebookEdit
-	} `json:"tool_input"`
-}
 
 // Decode extracts the command from a PreToolUse payload and resolves the shell
 // from the tool name. The tool the LLM chose is the authoritative shell signal:
 // Claude Code's Bash tool runs in Git Bash (bash) on every platform, and its
 // opt-in PowerShell tool spawns pwsh directly.
 func (ClaudeCode) Decode(input []byte) (Request, error) {
-	var in ccInput
-	if err := json.Unmarshal(input, &in); err != nil {
+	p, err := claudecli.DecodeHookPayload(input)
+	if err != nil {
 		return Request{}, err
 	}
 	return Request{
-		ToolName: in.ToolName,
-		Command:  in.ToolInput.Command,
-		Shell:    ccShellForTool(in.ToolName),
-		FilePath: in.ToolInput.FilePath,
+		ToolName: p.ToolName,
+		Command:  p.ToolInput.Command,
+		Shell:    ccShellForTool(p.ToolName),
+		FilePath: p.ToolInput.FilePath,
 	}, nil
 }
 
@@ -66,16 +62,6 @@ func ccShellForTool(tool string) ir.Shell {
 	}
 }
 
-type ccOutput struct {
-	HookSpecificOutput ccHookOutput `json:"hookSpecificOutput"`
-}
-
-type ccHookOutput struct {
-	HookEventName            string `json:"hookEventName"`
-	PermissionDecision       string `json:"permissionDecision"`
-	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
-}
-
 // Encode renders a denial as a PreToolUse permission decision on stdout with
 // exit 0. An allow produces a zero Output: no bytes, exit 0, which lets Claude
 // Code's normal permission flow proceed (it does NOT auto-approve).
@@ -83,11 +69,7 @@ func (ClaudeCode) Encode(resp Response) (Output, error) {
 	if resp.Allow {
 		return Output{}, nil
 	}
-	body, err := json.Marshal(ccOutput{HookSpecificOutput: ccHookOutput{
-		HookEventName:            "PreToolUse",
-		PermissionDecision:       "deny",
-		PermissionDecisionReason: resp.Message(),
-	}})
+	body, err := claudecli.EncodeDeny(resp.Message())
 	if err != nil {
 		return Output{}, err
 	}
@@ -143,17 +125,20 @@ func (ClaudeCode) HookCommand(bin, configPath string) string {
 
 // Install merges a PreToolUse hook running command into the settings JSON.
 func (ClaudeCode) Install(settings []byte, command string) ([]byte, error) {
-	return claudeMergeHook(settings, claudeMatcher, command)
+	return mergePreToolUseHook(settings, claudeMatcher, command)
 }
 
 // Uninstall removes any PreToolUse hook running command from the settings JSON.
 func (ClaudeCode) Uninstall(settings []byte, command string) ([]byte, error) {
-	return claudeRemoveHook(settings, command)
+	return removePreToolUseHook(settings, command)
 }
 
-// claudeMergeHook adds a PreToolUse command hook to a Claude settings document
-// without disturbing other settings. Idempotent.
-func claudeMergeHook(existing []byte, matcher, command string) ([]byte, error) {
+// mergePreToolUseHook adds a PreToolUse command hook to a settings document
+// without disturbing other settings. Idempotent. Shared across engines:
+// Antigravity adopted Claude Code's nested registration shape
+// (hooks.PreToolUse[].matcher + hooks[].{type,command}) verbatim, so one merge
+// covers both — only the matcher vocabulary differs per engine.
+func mergePreToolUseHook(existing []byte, matcher, command string) ([]byte, error) {
 	settings, err := decodeSettings(existing)
 	if err != nil {
 		return nil, err
@@ -179,9 +164,9 @@ func claudeMergeHook(existing []byte, matcher, command string) ([]byte, error) {
 	return renderJSON(settings)
 }
 
-// claudeRemoveHook removes PreToolUse inner hooks running command, pruning
+// removePreToolUseHook removes PreToolUse inner hooks running command, pruning
 // entries/keys that become empty. Idempotent.
-func claudeRemoveHook(existing []byte, command string) ([]byte, error) {
+func removePreToolUseHook(existing []byte, command string) ([]byte, error) {
 	settings, err := decodeSettings(existing)
 	if err != nil {
 		return nil, err

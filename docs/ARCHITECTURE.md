@@ -91,11 +91,12 @@ matching:
 
 # Engine compatibility
 
-**Only Claude Code is implemented today.** Codex and Gemini are **planned, not
-built** — the design accommodates them (see below), but no adapter exists yet.
-If you want them, vote 👍 on the tracking issues:
-[Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1),
+**Claude Code and Antigravity CLI (`agy`) are implemented today.** Codex is
+**planned, not built** — the design accommodates it (see below), but no
+adapter exists yet. If you want it, vote 👍 on the tracking issue:
 [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2).
+(Gemini CLI support, formerly issue #1, was retargeted at Antigravity when
+Google discontinued Gemini CLI in June 2026.)
 
 All target engines expose a deny-capable pre-execution hook that runs an
 external program reading JSON on stdin and returning a decision. The differences
@@ -104,22 +105,21 @@ each `engine.Adapter` absorbs:
 | Engine | Hook event | Shell signal | Deny mechanism | Status |
 |---|---|---|---|---|
 | **Claude Code** | `PreToolUse` | `tool_name`: `Bash` → user's `$SHELL`; `PowerShell` → pwsh | JSON `permissionDecision: deny` on **stdout**, exit **0** | **✅ implemented** |
+| **Antigravity CLI** | `PreToolUse` (`.agents/hooks.json` `hooks` + matcher) | `run_command`/`execute_command`: always `bash` | JSON `{"decision":"deny","reason":…}` on **stdout**, exit **0** | **✅ implemented** |
 | **Codex CLI** | `PreToolUse` (`~/.codex/hooks.json`) | always `bash` (runs `bash -lc`) | JSON deny on **stdout**; "any deny wins" | 🗳️ planned — [vote #2](https://github.com/ctxloom/llm-tool-killer/issues/2) |
-| **Gemini CLI** | `BeforeTool` (settings.json `hooks` + matcher) | `run_shell_command`: `bash` on Unix; `cmd`/`pwsh` on Windows | reason on **stderr**, exit **2** (or JSON) | 🗳️ planned — [vote #1](https://github.com/ctxloom/llm-tool-killer/issues/1) |
 
-### How Codex/Gemini will slot in (no rework needed)
+### How Codex will slot in (no rework needed)
 
-- **Adapter only.** Each is a new `engine.Adapter` (`Decode`/`Encode`) registered
-  in `engine.Get`. The `Output{Stdout,Stderr,ExitCode}` shape already expresses
-  Gemini's exit-2/stderr path and Codex's stdout/exit-0 path.
-- **Shell hint, not `$SHELL`.** Codex and Gemini force a fixed shell
-  (`bash -lc` / `bash -c`), so their adapters emit a **strong `bash` hint**
-  (precedence step 2), which bypasses the `$SHELL` detection that Claude's Bash
-  tool relies on. Gemini-on-Windows emits `cmd`/`pwsh` (or defers to
-  `defaults.shell`). `internal/shellenv` is shared for any `$SHELL` parsing they
-  do need.
-- **No frontend work.** Codex/Gemini commands are still POSIX-shell or pwsh, so
-  they reuse the existing frontends.
+- **Adapter only.** A new `engine.Adapter` (`Decode`/`Encode`) registered in
+  `engine.Get`. The `Output{Stdout,Stderr,ExitCode}` shape already expresses
+  Codex's stdout/exit-0 path.
+- **Shell hint, not `$SHELL`.** Codex forces a fixed shell (`bash -lc`), so its
+  adapter emits a **strong `bash` hint** (precedence step 2), which bypasses
+  the `$SHELL` detection that Claude's Bash tool relies on — exactly the path
+  the Antigravity adapter exercises today. `internal/shellenv` is shared for
+  any `$SHELL` parsing it does need.
+- **No frontend work.** Codex commands are still POSIX-shell, so they reuse the
+  existing frontends.
 
 ### Verified Claude Code PreToolUse contract (May 2026)
 
@@ -146,23 +146,62 @@ each `engine.Adapter` absorbs:
   Matchers are literal tool names with `|` alternation (e.g. `Bash|PowerShell`),
   not a general regex. `$CLAUDE_PROJECT_DIR` is available to the command.
 
+### Verified Antigravity PreToolUse contract (agy v1.0.7, June 2026)
+
+The wire types live in `github.com/ctxloom/antigravity` (the org-shared agy
+module); ltk's adapter consumes them rather than redefining the protocol.
+
+- **Input (stdin):** `{ artifactDirectoryPath, conversationId, stepIdx,
+  toolCall: { name, args }, transcriptPath, workspacePaths }` — camelCase
+  envelope, PascalCase arg keys. `run_command`/`execute_command` carry
+  `args.CommandLine` + `args.Cwd`; `write_to_file`/`replace_file_content`
+  carry `args.TargetFile`. The hook process runs with cwd
+  `<workspace>/.agents` and `ANTIGRAVITY_CONVERSATION_ID` in its environment.
+- **Deny:** stdout `{"decision":"deny","reason":"…"}` with exit `0`. The model
+  receives the reason verbatim ("Tool call denied with reason: …").
+- **Allow / pass-through:** emit nothing, exit `0`.
+- **Fail-open warning:** a hook that exits non-zero does NOT block the tool —
+  agy logs the failure and proceeds. Denial must be the well-formed decision
+  object, never an exit code.
+- **Shell:** `run_command` executes via **bash** regardless of `$SHELL`
+  (verified `echo $0` → `bash` on a zsh host) → strong `bash` hint.
+- **Registration (`.agents/hooks.json`, project-level only):**
+  ```json
+  {
+    "hooks": {
+      "PreToolUse": [
+        { "matcher": "run_command|execute_command|write_to_file|replace_file_content",
+          "hooks": [ { "type": "command",
+                       "command": "ltk evaluate --engine antigravity --config .ltk.yaml" } ] }
+      ]
+    }
+  }
+  ```
+  The matcher is a regex over agy tool names (`.*` works). **No global
+  registration:** `~/.gemini/antigravity-cli/hooks.json` is silently ignored,
+  and a hooks.json under `~/.gemini/` or `~/.gemini/config/` hangs headless
+  `agy -p` before any hook executes — `--global` install therefore errors.
+  agy may prompt to trust a newly seen hook on first interactive run
+  (`~/.gemini/trusted_hooks.json`); headless `-p` ran untrusted workspace
+  hooks without prompting in v1.0.7.
+
 ---
 
 # Not yet built
 
 - **Codex** ([#2](https://github.com/ctxloom/llm-tool-killer/issues/2))
-  and **Gemini** ([#1](https://github.com/ctxloom/llm-tool-killer/issues/1))
-  engines (above) — `engine.Engine` implementations registered in `engines()`;
-  `manage` and `evaluate` already dispatch polymorphically, so each is purely
-  additive. **Vote 👍 on the issues to prioritize.**
+  engine (above) — an `engine.Engine` implementation registered in `engines()`;
+  `manage` and `evaluate` already dispatch polymorphically, so it is purely
+  additive. **Vote 👍 on the issue to prioritize.**
 - More `match` operators.
 
 Done: POSIX-shell frontend, real **pwsh** frontend (native parser), **cmd**
-frontend (hand-written lexer), rule engine, Claude Code engine (`evaluate` +
-`manage install`/`uninstall`), **file-edit (`match.path`) rules** — full-glob
-(doublestar `**`) matching, directory subtrees (`vendor/`), and the
-`@submodules` sentinel that blocks edits inside every git submodule, with the
-shipped defaults guarding `.gitmodules` and submodule contents.
+frontend (hand-written lexer), rule engine, Claude Code engine, Antigravity
+engine (`evaluate` + `manage install`/`uninstall` for both), **file-edit
+(`match.path`) rules** — full-glob (doublestar `**`) matching, directory
+subtrees (`vendor/`), and the `@submodules` sentinel that blocks edits inside
+every git submodule, with the shipped defaults guarding `.gitmodules` and
+submodule contents.
 
 The shape of the whole system is one idea: every shell dialect lowers into one
 IR, and everything downstream — understanding, rule matching, engine I/O —

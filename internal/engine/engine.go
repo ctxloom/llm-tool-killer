@@ -1,6 +1,7 @@
-// Package engine adapts the various LLM hook protocols (Claude Code, Gemini,
-// ...) to a single internal Request/Response shape. The core never speaks a
-// specific engine's wire format; an Adapter does the translation at the edge.
+// Package engine adapts the various LLM hook protocols (Claude Code,
+// Antigravity, ...) to a single internal Request/Response shape. The core
+// never speaks a specific engine's wire format; an Adapter does the
+// translation at the edge.
 package engine
 
 import (
@@ -55,8 +56,8 @@ func (r Response) Message() string {
 // to each stream and the process exit code. This covers every engine's protocol
 // without changing the interface:
 //
-//   - Claude Code / Codex: deny → JSON on Stdout, ExitCode 0; allow → empty.
-//   - Gemini CLI: deny → reason on Stderr, ExitCode 2; allow → empty.
+//   - Claude Code / Antigravity / Codex: deny → JSON on Stdout, ExitCode 0;
+//     allow → empty.
 //
 // A zero Output (no bytes, exit 0) means "write nothing" — pass-through.
 type Output struct {
@@ -99,15 +100,18 @@ type Engine interface {
 	Uninstall(settings []byte, command string) ([]byte, error)
 }
 
-// engines is the registry of known engines.
+// engines is the registry of known engines. Order matters for Detect ties:
+// earlier wins, so Claude Code outranks Antigravity when both score equally.
 func engines() []Engine {
-	return []Engine{ClaudeCode{}}
+	return []Engine{ClaudeCode{}, Antigravity{}}
 }
 
 // engineAliases maps accepted alternate spellings to canonical engine names.
 var engineAliases = map[string]string{
-	"claudecode": "claude-code",
-	"claude":     "claude-code",
+	"claudecode":      "claude-code",
+	"claude":          "claude-code",
+	"agy":             "antigravity",
+	"antigravity-cli": "antigravity",
 }
 
 // Get returns the engine for a name: the canonical name or a declared alias,

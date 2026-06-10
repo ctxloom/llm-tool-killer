@@ -25,7 +25,7 @@ type App struct {
 	// HostShell is the user's default login shell (from $SHELL). It is the right
 	// dialect for engines that run commands in the user's shell — notably Claude
 	// Code's Bash tool. main populates it; engines that force a fixed shell
-	// (Codex/Gemini) emit a strong hint that bypasses it.
+	// (Codex/Antigravity) emit a strong hint that bypasses it.
 	HostShell ir.Shell
 	// DefaultShell is the final fallback when nothing else resolves a shell.
 	DefaultShell ir.Shell

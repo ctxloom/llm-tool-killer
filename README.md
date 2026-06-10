@@ -187,10 +187,11 @@ Run them with `just acceptance`.
 
 ## Install
 
-> **Claude Code is the only supported agent right now.** Codex and Gemini are
-> planned, not built — vote 👍 to prioritize:
-> [Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1),
+> **Claude Code and Antigravity CLI (`agy`) are supported.** Codex is planned,
+> not built — vote 👍 to prioritize:
 > [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2).
+> For Antigravity use `ltk manage install --engine antigravity` (project scope
+> only — agy reads hooks solely from the workspace `.agents/hooks.json`).
 
 Build a static binary (no runtime dependencies):
 
@@ -346,7 +347,7 @@ It works. Here's the hook catching this project's own coding agent reaching for
 | | |
 |---|---|
 | **Shells** | sh, bash, zsh, mksh (in-process via mvdan/sh); PowerShell (native parser); cmd.exe (built-in lexer). Variable resolution: shell family. |
-| **Engines** | **Claude Code only** right now (`PreToolUse`, gating both shell commands and file edits). Codex and Gemini are planned, not built — vote 👍 to prioritize: [Gemini #1](https://github.com/ctxloom/llm-tool-killer/issues/1), [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2). |
+| **Engines** | **Claude Code and Antigravity CLI** (`PreToolUse`, gating both shell commands and file edits). Codex is planned, not built — vote 👍 to prioritize: [Codex #2](https://github.com/ctxloom/llm-tool-killer/issues/2). |
 
 ## Develop
 
