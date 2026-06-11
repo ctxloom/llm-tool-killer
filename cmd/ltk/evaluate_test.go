@@ -59,6 +59,60 @@ rules:
 	})
 }
 
+// TestEvaluateFindsConfigFromHookCwd pins the default-config search against
+// Antigravity's hook environment: agy runs hooks with cwd <workspace>/.agents,
+// so the search must walk up to the repository root and find the project's
+// rules — falling back to the built-in allow-all config from there would make
+// the guard silently approve everything.
+func TestEvaluateFindsConfigFromHookCwd(t *testing.T) {
+	ws := t.TempDir()
+	// Mark the workspace as the repository root and place rules + an
+	// out-of-repo decoy that the walk must NOT pick up.
+	for _, dir := range []string{".git", ".ltk", ".agents"} {
+		if err := os.MkdirAll(filepath.Join(ws, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := `version: 1
+rules:
+  - id: no-force-push
+    match: { command: [git, push, --force] }
+    message: "no force pushes"
+`
+	if err := os.WriteFile(filepath.Join(ws, ".ltk", "config.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	decoy := `version: 1
+rules:
+  - id: decoy
+    match: { command: [git] }
+    message: "decoy above the repo root must not load"
+`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(ws), ".ltk.yaml"), []byte(decoy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(filepath.Join(ws, ".agents"))
+
+	agyPayload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"git push --force","Cwd":"` + ws + `"}}}`
+	out, err := evaluate("antigravity", "", "", strings.NewReader(agyPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out.Stdout), `"deny"`) || !strings.Contains(string(out.Stdout), "no force pushes") {
+		t.Fatalf("project rules must apply from the .agents hook cwd, got %+v", out)
+	}
+
+	allowOut, err := evaluate("antigravity", "", "", strings.NewReader(
+		`{"toolCall":{"name":"run_command","args":{"CommandLine":"git status"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(allowOut.Stdout), "decoy") {
+		t.Fatalf("config above the repository root must not be loaded: %+v", allowOut)
+	}
+}
+
 // Override state lives inside a .ltk directory: next to the config when the
 // config is already in one, otherwise .ltk/state.json in the cwd — never loose
 // in the repo root (legacy flat configs like .ltk.yaml used to cause that).

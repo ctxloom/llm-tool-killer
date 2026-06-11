@@ -84,22 +84,22 @@ var errAntigravityNoGlobal = errors.New("antigravity reads hooks only from the w
 // below ClaudeCode's .claude/ (registry order breaks ties in Claude's favor),
 // while an actual .agents/hooks.json marks a genuine agy hook host.
 func (Antigravity) Detect(dir string) int {
-	if fi, err := os.Stat(filepath.Join(dir, ".agents", "hooks.json")); err == nil && !fi.IsDir() {
+	if fi, err := os.Stat(antigravitycli.WorkspaceHooksPath(dir)); err == nil && !fi.IsDir() {
 		return 2
 	}
-	if fi, err := os.Stat(filepath.Join(dir, ".agents")); err == nil && fi.IsDir() {
+	if fi, err := os.Stat(filepath.Join(dir, antigravitycli.AgentsDir)); err == nil && fi.IsDir() {
 		return 1
 	}
 	return 0
 }
 
-// SettingsPath is .agents/hooks.json (project). There is no global scope —
-// see errAntigravityNoGlobal.
+// SettingsPath is .agents/hooks.json (project), per the antigravity module's
+// path convention. There is no global scope — see errAntigravityNoGlobal.
 func (Antigravity) SettingsPath(dir string, global bool) (string, error) {
 	if global {
 		return "", errAntigravityNoGlobal
 	}
-	return filepath.Join(dir, ".agents", "hooks.json"), nil
+	return antigravitycli.WorkspaceHooksPath(dir), nil
 }
 
 // HookCommand runs the evaluate subcommand. --engine is explicit because
@@ -112,7 +112,7 @@ func (Antigravity) HookCommand(bin, configPath string) string {
 		if !filepath.IsAbs(configPath) {
 			configPath = "../" + configPath
 		}
-		cmd += " --config " + configPath
+		cmd += " --config " + quotePathIfNeeded(configPath)
 	}
 	return cmd
 }

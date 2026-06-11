@@ -159,19 +159,53 @@ func statePath(configPath string) string {
 	return filepath.Join(configDir, stateBase)
 }
 
-// loadConfig loads the given path, or searches the default locations, returning
-// the resolved path (empty when falling back to the built-in allow-all config).
+// loadConfig loads the given path, or searches the default locations in the
+// cwd and each ancestor up to the repository root, returning the resolved
+// path (empty when falling back to the built-in allow-all config).
+//
+// The ancestor walk matters because hook hosts differ in the cwd they give
+// hooks: Claude Code runs them at the project root, Antigravity inside
+// <workspace>/.agents. A cwd-only search under agy would miss the project's
+// rules and silently fall back to the built-in allow-all config — the wrong
+// direction for a guard to fail.
 func loadConfig(path string) (*rules.Config, string, error) {
 	if path != "" {
 		c, err := rules.Load(path)
 		return c, path, err
 	}
-	for _, candidate := range configSearch {
-		if _, err := os.Stat(candidate); err == nil {
-			c, err := rules.Load(candidate)
-			return c, candidate, err
+	for _, dir := range configSearchDirs() {
+		for _, candidate := range configSearch {
+			p := filepath.Join(dir, candidate)
+			if _, err := os.Stat(p); err == nil {
+				c, err := rules.Load(p)
+				return c, p, err
+			}
 		}
 	}
 	c, err := rules.Parse([]byte("version: 1\nrules: []\n"))
 	return c, "", err
+}
+
+// configSearchDirs returns the cwd and its ancestors, stopping at the first
+// directory containing .git (the repository root holds the project's rules;
+// directories above it are someone else's territory) or at the filesystem
+// root for non-repo workspaces.
+func configSearchDirs() []string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return []string{"."}
+	}
+	var dirs []string
+	for dir := wd; ; {
+		dirs = append(dirs, dir)
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return dirs
 }

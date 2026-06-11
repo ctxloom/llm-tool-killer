@@ -4,9 +4,8 @@ go 1.25.0
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/ctxloom/antigravity v0.0.0-20260610205750-319c78567fd2
-	github.com/ctxloom/claude v0.0.0-20260610191109-5de4e1386aa0
-	github.com/ctxloom/shared v0.0.0-20260606132132-d587886b4479
+	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
+	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
 	github.com/cucumber/godog v0.15.1
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
@@ -66,6 +65,7 @@ require (
 	github.com/ckaznocha/intrange v0.3.1 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/ctxloom/shared v0.0.0-20260611004045-74721c6839c1 // indirect
 	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect
 	github.com/cucumber/messages/go/v21 v21.0.1 // indirect
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
@@ -174,7 +174,7 @@ require (
 	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect
 	github.com/raeperd/recvcheck v0.2.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/ryancurrah/gomodguard v1.4.1 // indirect
 	github.com/ryancurrah/gomodguard/v2 v2.1.3 // indirect
 	github.com/ryanrolds/sqlclosecheck v0.6.0 // indirect

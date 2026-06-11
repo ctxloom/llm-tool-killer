@@ -103,24 +103,33 @@ func (ClaudeCode) Detect(dir string) int {
 }
 
 // SettingsPath is .claude/settings.json (project) or ~/.claude/settings.json.
+// The path conventions come from the claude module (the org's single source
+// of truth for Claude Code's on-disk layout).
 func (ClaudeCode) SettingsPath(dir string, global bool) (string, error) {
 	if global {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, ".claude", "settings.json"), nil
+		return claudecli.GlobalSettingsPath()
 	}
-	return filepath.Join(dir, ".claude", "settings.json"), nil
+	return claudecli.ProjectSettingsPath(dir), nil
 }
 
 // HookCommand runs the evaluate subcommand, optionally with a rules file.
 func (ClaudeCode) HookCommand(bin, configPath string) string {
 	cmd := bin + " evaluate"
 	if configPath != "" {
-		cmd += " --config " + configPath
+		cmd += " --config " + quotePathIfNeeded(configPath)
 	}
 	return cmd
+}
+
+// quotePathIfNeeded double-quotes a path containing whitespace so it survives
+// the hook host's shell split. Double quotes (not single) so env references
+// like ${CLAUDE_PROJECT_DIR} keep expanding; plain paths pass through
+// unquoted, keeping existing installed hook commands byte-stable.
+func quotePathIfNeeded(p string) string {
+	if strings.ContainsAny(p, " \t") {
+		return `"` + p + `"`
+	}
+	return p
 }
 
 // Install merges a PreToolUse hook running command into the settings JSON.

@@ -22,6 +22,11 @@ func TestAntigravityHookCommand(t *testing.T) {
 	if got := (Antigravity{}).HookCommand("ltk", ""); got != "ltk evaluate --engine antigravity" {
 		t.Errorf("HookCommand without config = %q", got)
 	}
+	// A path with spaces is double-quoted so the hook shell-splits correctly
+	// (double quotes keep env references expanding).
+	if got := (Antigravity{}).HookCommand("ltk", "/my project/.ltk.yaml"); got != `ltk evaluate --engine antigravity --config "/my project/.ltk.yaml"` {
+		t.Errorf("HookCommand with spaced config = %q", got)
+	}
 }
 
 func TestAntigravitySettingsPath(t *testing.T) {
