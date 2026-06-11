@@ -4,6 +4,7 @@ import (
 	"context"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
 	"github.com/ctxloom/llm-tool-killer/internal/shellenv"
@@ -21,12 +22,13 @@ type wrapperRule struct {
 	flag     string   // flag whose argument(s) are the inner command; "" = eval-style (all args)
 	joinRest bool     // true: inner = all args after the flag joined; false: the single arg after it
 	caseFold bool     // true: flag matches case-insensitively (cmd switches, pwsh parameters); POSIX flags are case-sensitive (-c ≠ -C)
+	cluster  bool     // true: the flag also counts inside a POSIX short-option cluster (`bash -ec …` ≡ `bash -e -c …`)
 }
 
 // wrapperRules covers the common shell wrappers. Inner-command shell is derived
 // from the program name via innerShell.
 var wrapperRules = []wrapperRule{
-	{programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"}, flag: "-c", joinRest: false},
+	{programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"}, flag: "-c", joinRest: false, cluster: true},
 	{programs: []string{"eval"}, flag: "", joinRest: true},
 	{programs: []string{"cmd", "cmd.exe"}, flag: "/c", joinRest: true, caseFold: true},
 	{programs: []string{"cmd", "cmd.exe"}, flag: "/k", joinRest: true, caseFold: true},
@@ -113,12 +115,50 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 }
 
 // flagMatches reports whether arg is this rule's wrapper flag, folding case
-// only where the host shell does (cmd switches, pwsh parameters).
+// only where the host shell does (cmd switches, pwsh parameters). For the
+// POSIX shells the flag also matches inside a bundled short-option cluster:
+// `bash -ec '…'` is `bash -e -c '…'`, and skipping it would let a denied
+// command ride through unexpanded.
 func (rule wrapperRule) flagMatches(arg string) bool {
 	if rule.caseFold {
 		return strings.EqualFold(arg, rule.flag)
 	}
-	return arg == rule.flag
+	if arg == rule.flag {
+		return true
+	}
+	return rule.cluster && clusterHasFlag(arg, rule.flag)
+}
+
+// clusterHasFlag reports whether arg is a POSIX bundled short-option cluster
+// (single leading dash, more than one letter, all letters) carrying flag's
+// option letter, e.g. "-ec" or "-xc" for "-c". The cluster's position relative
+// to the inner command holds regardless of letter order: for sh/bash/zsh -c
+// does not consume the next token as a getopt argument — the command string is
+// the first operand after the options — so `-ce` and `-ec` behave alike.
+//
+// A cluster containing 'o' or 'O' is rejected: those POSIX shell options DO
+// consume the next argument (`set -o`-style option names), so the token after
+// the cluster is that argument, not the command. Better to skip expansion (the
+// pre-fix behavior) than to mis-parse the wrong token as the inner command.
+func clusterHasFlag(arg, flag string) bool {
+	if len(flag) != 2 || flag[0] != '-' {
+		return false
+	}
+	if len(arg) <= 2 || arg[0] != '-' || arg[1] == '-' {
+		return false
+	}
+	found := false
+	for _, r := range arg[1:] {
+		switch {
+		case !unicode.IsLetter(r):
+			return false // not a pure flag cluster (e.g. "-c5", "-o:")
+		case r == 'o' || r == 'O':
+			return false // argument-consuming option: next token is not the command
+		case r == rune(flag[1]):
+			found = true
+		}
+	}
+	return found
 }
 
 // innerShell maps a wrapper program to the shell its inner command is written

@@ -80,7 +80,9 @@ func newInstallCmd() *cobra.Command {
 				return err
 			}
 			command := eng.HookCommand(f.bin, f.configPath)
-			if f.configPath != "" {
+			// --print is a dry run: show the merged settings without touching
+			// the filesystem, so no rules-file scaffold either.
+			if f.configPath != "" && !f.printOnly {
 				if err := scaffoldConfig(f.configPath, !f.noDefaultRules, f.force); err != nil {
 					return err
 				}
@@ -89,9 +91,12 @@ func newInstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			merged, err := eng.Install(existing, command)
+			merged, note, err := eng.Install(existing, command)
 			if err != nil {
 				return err
+			}
+			if note != "" {
+				fmt.Fprintf(os.Stderr, progName+": %s\n", note)
 			}
 			if f.printOnly {
 				_, err := os.Stdout.Write(merged)
@@ -199,11 +204,39 @@ func readIfExists(path string) ([]byte, error) {
 	return b, nil
 }
 
+// writeFile writes data to path atomically: a sibling temp file renamed into
+// place (the same pattern as state.Store.Save), so an interrupt mid-write can
+// never leave a truncated settings file — those files hold the user's
+// unrelated config too. An existing file's permissions are preserved.
 func writeFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

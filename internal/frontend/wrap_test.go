@@ -110,6 +110,45 @@ func TestExpandWrappers_CmdUpperSlashC(t *testing.T) {
 	}
 }
 
+// POSIX shells bundle short options: `bash -ec '…'` is `bash -e -c '…'`, and
+// the command string is the first operand after the options regardless of the
+// cluster's letter order. Skipping clusters would let `bash -ec 'denied'`
+// bypass every rule.
+func TestExpandWrappers_PosixShortOptionClusters(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want string // inner program that must surface; "" = no expansion
+	}{
+		{"bash -ec", []string{"bash", "-ec", "go test"}, "go"},
+		{"sh -xc", []string{"sh", "-xc", "git tag v1"}, "git"},
+		{"zsh -ec", []string{"zsh", "-ec", "rm -rf build"}, "rm"},
+		{"c first in the cluster", []string{"bash", "-ce", "go test"}, "go"},
+		{"cluster without c", []string{"bash", "-ex", "script.sh"}, ""},
+		{"capital C does not count (POSIX flags are case-sensitive)", []string{"bash", "-eC", "script.sh"}, ""},
+		{"non-letter chars are not a flag cluster", []string{"bash", "-c1", "script.sh"}, ""},
+		{"argument-consuming o disqualifies the cluster", []string{"bash", "-eco", "pipefail", "go test"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, tt.argv...)
+			r.ExpandWrappers(context.Background(), s)
+			got := nestedPrograms(s)
+			if tt.want == "" {
+				if len(f.seen) != 0 {
+					t.Errorf("no expansion expected; seen=%v", f.seen)
+				}
+				return
+			}
+			if !contains(got, tt.want) {
+				t.Errorf("inner %q not surfaced; programs=%v seen=%v", tt.want, got, f.seen)
+			}
+		})
+	}
+}
+
 func TestExpandWrappers_BashUpperCIsNotCommandFlag(t *testing.T) {
 	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
 	r := newReg(f)

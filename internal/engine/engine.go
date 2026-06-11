@@ -94,8 +94,10 @@ type Engine interface {
 	// HookCommand builds the command line the hook should run.
 	HookCommand(bin, configPath string) string
 	// Install merges a hook running command into the engine's settings bytes
-	// (empty in → fresh config). Idempotent; returns the new settings bytes.
-	Install(settings []byte, command string) ([]byte, error)
+	// (empty in → fresh config). Idempotent; returns the new settings bytes and
+	// a human-facing note when the merge repaired an existing install (e.g.
+	// upgraded a stale matcher), empty otherwise.
+	Install(settings []byte, command string) (data []byte, note string, err error)
 	// Uninstall removes any hook running command from the settings bytes.
 	Uninstall(settings []byte, command string) ([]byte, error)
 }

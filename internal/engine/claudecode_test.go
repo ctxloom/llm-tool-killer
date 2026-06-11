@@ -21,6 +21,27 @@ func TestClaudeCodeDecode(t *testing.T) {
 	}
 }
 
+// NotebookEdit spells its target notebook_path, not file_path. The installed
+// matcher advertises NotebookEdit, so a decode that dropped the path produced
+// an empty FilePath — and Decide waved every notebook edit past the path rules.
+func TestClaudeCodeDecodeNotebookEdit(t *testing.T) {
+	payload := `{
+		"hook_event_name": "PreToolUse",
+		"tool_name": "NotebookEdit",
+		"tool_input": {"notebook_path": "/proj/analysis.ipynb", "new_source": "print(1)"}
+	}`
+	req, err := ClaudeCode{}.Decode([]byte(payload))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if req.FilePath != "/proj/analysis.ipynb" {
+		t.Fatalf("FilePath = %q, want the notebook_path", req.FilePath)
+	}
+	if req.ToolName != "NotebookEdit" || req.Command != "" {
+		t.Fatalf("req = %+v", req)
+	}
+}
+
 func TestClaudeCodeEncodeAllowIsSilent(t *testing.T) {
 	out, err := ClaudeCode{}.Encode(Response{Allow: true})
 	if err != nil {

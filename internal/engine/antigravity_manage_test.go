@@ -88,7 +88,7 @@ func TestDetectTiePrefersClaude(t *testing.T) {
 }
 
 func TestAntigravityInstallIntoEmpty(t *testing.T) {
-	out, err := Antigravity{}.Install(nil, agHookCmd)
+	out, _, err := Antigravity{}.Install(nil, agHookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestAntigravityInstallPreservesOtherSettings(t *testing.T) {
         "Stop": [{"hooks": [{"type": "command", "command": "cleanup"}]}]
       }
     }`
-	out, err := Antigravity{}.Install([]byte(existing), agHookCmd)
+	out, _, err := Antigravity{}.Install([]byte(existing), agHookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,8 +129,8 @@ func TestAntigravityInstallPreservesOtherSettings(t *testing.T) {
 }
 
 func TestAntigravityInstallIdempotent(t *testing.T) {
-	first, _ := Antigravity{}.Install(nil, agHookCmd)
-	second, err := Antigravity{}.Install(first, agHookCmd)
+	first, _, _ := Antigravity{}.Install(nil, agHookCmd)
+	second, _, err := Antigravity{}.Install(first, agHookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestAntigravityInstallIdempotent(t *testing.T) {
 
 func TestAntigravityUninstallIsInverse(t *testing.T) {
 	existing := `{"hooks":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":"other"}]}]}}`
-	installed, err := Antigravity{}.Install([]byte(existing), agHookCmd)
+	installed, _, err := Antigravity{}.Install([]byte(existing), agHookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestAntigravityUninstallNoHooksKeyIsNoop(t *testing.T) {
 }
 
 func TestAntigravityInstallRejectsMalformed(t *testing.T) {
-	if _, err := (Antigravity{}).Install([]byte(`{"hooks":"nope"}`), agHookCmd); err == nil {
+	if _, _, err := (Antigravity{}).Install([]byte(`{"hooks":"nope"}`), agHookCmd); err == nil {
 		t.Error("expected error when hooks is not an object")
 	}
 }

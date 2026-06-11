@@ -35,11 +35,18 @@ func (ClaudeCode) Decode(input []byte) (Request, error) {
 	if err != nil {
 		return Request{}, err
 	}
+	// NotebookEdit spells its target notebook_path, not file_path. Fall back to
+	// it so notebook edits face the same path rules as the other editing tools —
+	// an empty FilePath here would let them sail past every rule.
+	filePath := p.ToolInput.FilePath
+	if filePath == "" {
+		filePath = p.ToolInput.NotebookPath
+	}
 	return Request{
 		ToolName: p.ToolName,
 		Command:  p.ToolInput.Command,
 		Shell:    ccShellForTool(p.ToolName),
-		FilePath: p.ToolInput.FilePath,
+		FilePath: filePath,
 	}, nil
 }
 
@@ -121,19 +128,45 @@ func (ClaudeCode) HookCommand(bin, configPath string) string {
 	return cmd
 }
 
-// quotePathIfNeeded double-quotes a path containing whitespace so it survives
-// the hook host's shell split. Double quotes (not single) so env references
-// like ${CLAUDE_PROJECT_DIR} keep expanding; plain paths pass through
-// unquoted, keeping existing installed hook commands byte-stable.
+// quotePathIfNeeded quotes a path for the hook host's shell. Paths made only
+// of conservative shell-neutral characters pass through unquoted, keeping
+// existing installed hook commands byte-stable. Anything else — whitespace,
+// but also metacharacters like ;, $(…), and backticks — is wrapped in double
+// quotes with POSIX double-quote escaping (\, ", `, $), so a hostile path
+// can't smuggle extra shell syntax into the hook command line. Escaping $
+// deliberately stops env references in the path from expanding: $ is exactly
+// how an injection rides in.
 func quotePathIfNeeded(p string) string {
-	if strings.ContainsAny(p, " \t") {
-		return `"` + p + `"`
+	if p != "" && strings.IndexFunc(p, isUnsafePathRune) < 0 {
+		return p
 	}
-	return p
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range p {
+		switch r {
+		case '\\', '"', '`', '$':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// isUnsafePathRune reports whether r falls outside the shell-neutral set
+// [A-Za-z0-9._/~-] that may appear on a command line unquoted.
+func isUnsafePathRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	case r == '.', r == '_', r == '/', r == '~', r == '-':
+		return false
+	}
+	return true
 }
 
 // Install merges a PreToolUse hook running command into the settings JSON.
-func (ClaudeCode) Install(settings []byte, command string) ([]byte, error) {
+func (ClaudeCode) Install(settings []byte, command string) ([]byte, string, error) {
 	return mergePreToolUseHook(settings, claudeMatcher, command)
 }
 
@@ -143,34 +176,45 @@ func (ClaudeCode) Uninstall(settings []byte, command string) ([]byte, error) {
 }
 
 // mergePreToolUseHook adds a PreToolUse command hook to a settings document
-// without disturbing other settings. Idempotent. Shared across engines:
+// without disturbing other settings. Idempotent; the returned note reports a
+// repair (empty when there was nothing to fix). Shared across engines:
 // Antigravity adopted Claude Code's nested registration shape
 // (hooks.PreToolUse[].matcher + hooks[].{type,command}) verbatim, so one merge
 // covers both — only the matcher vocabulary differs per engine.
-func mergePreToolUseHook(existing []byte, matcher, command string) ([]byte, error) {
+func mergePreToolUseHook(existing []byte, matcher, command string) ([]byte, string, error) {
 	settings, err := decodeSettings(existing)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	hooks, err := childMap(settings, keyHooks)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	pre, err := childSlice(hooks, keyPreToolUse)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	if !preContainsCommand(pre, command) {
+	note := ""
+	switch entry := findCommandEntry(pre, command); {
+	case entry == nil:
 		pre = append(pre, map[string]any{
 			keyMatcher: matcher,
 			keyHooks: []any{
 				map[string]any{keyType: typeCommand, keyCommand: command},
 			},
 		})
+	case entry[keyMatcher] != matcher:
+		// The hook is installed, but under an older, narrower matcher. Leaving it
+		// would silently keep the tools added since then ungated, so upgrade the
+		// matcher in place and report it.
+		old, _ := entry[keyMatcher].(string)
+		entry[keyMatcher] = matcher
+		note = fmt.Sprintf("upgraded the installed hook's matcher (%q → %q)", old, matcher)
 	}
 	hooks[keyPreToolUse] = pre
 	settings[keyHooks] = hooks
-	return renderJSON(settings)
+	out, err := renderJSON(settings)
+	return out, note, err
 }
 
 // removePreToolUseHook removes PreToolUse inner hooks running command, pruning
@@ -283,7 +327,9 @@ func childSlice(m map[string]any, key string) ([]any, error) {
 	}
 }
 
-func preContainsCommand(pre []any, command string) bool {
+// findCommandEntry returns the first PreToolUse entry whose inner hooks run
+// command, or nil when none does.
+func findCommandEntry(pre []any, command string) map[string]any {
 	for _, e := range pre {
 		em, ok := e.(map[string]any)
 		if !ok {
@@ -296,10 +342,10 @@ func preContainsCommand(pre []any, command string) bool {
 		for _, h := range hs {
 			if hm, ok := h.(map[string]any); ok {
 				if c, _ := hm[keyCommand].(string); c == command {
-					return true
+					return em
 				}
 			}
 		}
 	}
-	return false
+	return nil
 }

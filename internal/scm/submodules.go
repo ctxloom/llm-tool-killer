@@ -15,12 +15,20 @@ import (
 // found at or above startDir (the repo root's, in practice). It returns nil when
 // there is no .gitmodules or it declares none. Paths are returned exactly as
 // written — slash-separated and repo-relative.
+//
+// The walk stops at the first directory containing .git (file or dir): that is
+// this repository's root, and a parent repository's .gitmodules describes the
+// PARENT's submodules, whose repo-relative paths would expand into spurious
+// rules inside the inner repo. (Same boundary as the config search.)
 func SubmodulePaths(fsys afero.Fs, startDir string) []string {
 	dir := filepath.Clean(startDir)
 	for {
 		data, err := afero.ReadFile(fsys, filepath.Join(dir, ".gitmodules"))
 		if err == nil {
 			return parseSubmodulePaths(string(data))
+		}
+		if ok, _ := afero.Exists(fsys, filepath.Join(dir, ".git")); ok {
+			return nil // repository root without a .gitmodules — do not leave the repo
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

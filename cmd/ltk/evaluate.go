@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -91,9 +92,23 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	if err != nil {
 		return engine.Output{}, err
 	}
+	// A typo'd --shell in the installed hook command would otherwise surface as
+	// ErrUnsupportedShell on every parse, which the default on_parse_error: allow
+	// turns into a permanent, silent allow-all. Fail closed instead.
+	if forceShell != "" && !forceShell.Valid() {
+		return failClosed(adapter, fmt.Sprintf(
+			"%s is misconfigured: unknown --shell %q (known: %s); denying everything it guards until the hook command is fixed",
+			progName, forceShell, knownShells()))
+	}
 	cfg, resolved, err := loadConfig(cfgPath)
 	if err != nil {
-		return engine.Output{}, err
+		// A rules file was named (--config) or found by the search, but could not
+		// be read or parsed. Erroring out here would fail OPEN — exit 1 disables
+		// the guard on both hosts — so a broken config must deny instead. The
+		// parse error rides in the reason so the agent relays it to the user.
+		return failClosed(adapter, fmt.Sprintf(
+			"%s could not load its rules config and is denying everything it guards until the config is fixed: %v",
+			progName, err))
 	}
 	// Resolve the `@submodules` path sentinel against this repo's .gitmodules, so
 	// a rule can block edits inside every submodule without naming them.
@@ -136,6 +151,30 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	return out, nil
 }
 
+// failClosed renders reason as a well-formed deny decision in the engine's wire
+// format, exit 0. It exists because both hook hosts fail OPEN when a hook exits
+// non-zero — Claude Code treats exit 1 as non-blocking, and agy proceeds on any
+// crashing hook (see engine.Antigravity) — so a broken ltk installation must
+// never surface as an error exit on the hook path: that would silently disable
+// every rule. Explicit user-facing commands (manage, --print) keep their
+// fail-loud exit-1 behavior; only `evaluate` fails closed.
+func failClosed(adapter engine.Adapter, reason string) (engine.Output, error) {
+	out, err := adapter.Encode(engine.Response{Allow: false, Reason: reason})
+	if err != nil {
+		return engine.Output{}, fmt.Errorf("encode fail-closed decision: %w", err)
+	}
+	return out, nil
+}
+
+// knownShells renders ir.KnownShells for a diagnostic message.
+func knownShells() string {
+	names := make([]string, len(ir.KnownShells))
+	for i, s := range ir.KnownShells {
+		names[i] = string(s)
+	}
+	return strings.Join(names, ", ")
+}
+
 // confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
 // using the wall clock, and notes on stderr when a repeat was honored. The logic
 // lives in internal/state so the acceptance suite can exercise it too.
@@ -147,16 +186,28 @@ func confirmByRepeat(resp engine.Response, command, stateFile string, delay, win
 	return out
 }
 
-// statePath puts the override state next to the resolved config when that
-// config lives in a .ltk directory; otherwise (legacy flat configs, custom
-// paths, or no config at all) it falls back to .ltk/state.json in the cwd.
-// Runtime state always lives inside a .ltk directory, never loose in the
-// project root, so .gitignore's ".ltk/state.json" entry covers it.
+// statePath puts the override state in a .ltk directory anchored to the
+// resolved config: next to the config when it already lives in a .ltk
+// directory, otherwise in a .ltk/ beside the config file (legacy flat configs,
+// custom --config paths). Anchoring to the config — never the cwd — keeps
+// confirm-by-repeat working when the host varies the hook cwd (agy runs hooks
+// in <workspace>/.agents; the config search walks up, so the resolved path is
+// the stable anchor). Runtime state always lives inside a .ltk directory,
+// never loose in the project root, so .gitignore's ".ltk/state.json" entry
+// covers it.
+//
+// With no config at all there is nothing to anchor to, and also nothing to
+// confirm (no rules ⇒ no confirmable denial), so the cwd-relative fallback is
+// effectively unreachable on the decision path.
 func statePath(configPath string) string {
-	if dir := filepath.Dir(configPath); filepath.Base(dir) == configDir {
+	if configPath == "" {
+		return filepath.Join(configDir, stateBase)
+	}
+	dir := filepath.Dir(configPath)
+	if filepath.Base(dir) == configDir {
 		return filepath.Join(dir, stateBase)
 	}
-	return filepath.Join(configDir, stateBase)
+	return filepath.Join(dir, configDir, stateBase)
 }
 
 // loadConfig loads the given path, or searches the default locations in the
@@ -187,9 +238,19 @@ func loadConfig(path string) (*rules.Config, string, error) {
 }
 
 // configSearchDirs returns the cwd and its ancestors, stopping at the first
-// directory containing .git (the repository root holds the project's rules;
-// directories above it are someone else's territory) or at the filesystem
-// root for non-repo workspaces.
+// directory containing a .git DIRECTORY (the main repository root holds the
+// project's rules; directories above it are someone else's territory) or at
+// the filesystem root for non-repo workspaces.
+//
+// A .git FILE (a gitfile pointer) marks a submodule working tree or a linked
+// worktree, and is deliberately NOT a boundary: stopping there would make a
+// superproject's rules silently vanish inside its submodules (allow-all — the
+// wrong direction for a guard to fail). Continuing past it is safe for both
+// layouts because loadConfig takes the NEAREST config first, so the extra
+// ancestor dirs are only fallback candidates: a worktree (or submodule)
+// carrying its own .ltk still wins, and when it carries none, an ancestor
+// config — the superproject/monorepo case — is exactly the one that should
+// apply.
 func configSearchDirs() []string {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -198,7 +259,7 @@ func configSearchDirs() []string {
 	var dirs []string
 	for dir := wd; ; {
 		dirs = append(dirs, dir)
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if fi, err := os.Stat(filepath.Join(dir, ".git")); err == nil && fi.IsDir() {
 			break
 		}
 		parent := filepath.Dir(dir)

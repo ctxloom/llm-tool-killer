@@ -40,9 +40,12 @@ func TestClaudeHookCommand(t *testing.T) {
 }
 
 func TestClaudeInstallIntoEmpty(t *testing.T) {
-	out, err := ClaudeCode{}.Install(nil, hookCmd)
+	out, note, err := ClaudeCode{}.Install(nil, hookCmd)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if note != "" {
+		t.Errorf("fresh install should have no repair note, got %q", note)
 	}
 	pre := preToolUse(t, decodeSettingsJSON(t, out))
 	if len(pre) != 1 {
@@ -64,7 +67,7 @@ func TestClaudeInstallPreservesOtherSettings(t *testing.T) {
         "PostToolUse": [{"matcher": "Bash", "hooks": []}]
       }
     }`
-	out, err := ClaudeCode{}.Install([]byte(existing), hookCmd)
+	out, _, err := ClaudeCode{}.Install([]byte(existing), hookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,20 +84,44 @@ func TestClaudeInstallPreservesOtherSettings(t *testing.T) {
 }
 
 func TestClaudeInstallIdempotent(t *testing.T) {
-	first, _ := ClaudeCode{}.Install(nil, hookCmd)
-	second, err := ClaudeCode{}.Install(first, hookCmd)
+	first, _, _ := ClaudeCode{}.Install(nil, hookCmd)
+	second, note, err := ClaudeCode{}.Install(first, hookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(preToolUse(t, decodeSettingsJSON(t, second))) != 1 {
 		t.Error("re-install added a duplicate")
 	}
+	if note != "" {
+		t.Errorf("re-install over a current matcher should have no repair note, got %q", note)
+	}
+}
+
+// Re-running install over a settings file whose entry still carries an older,
+// narrower matcher must upgrade the matcher in place: leaving it stale would
+// silently keep the tools added since then (e.g. NotebookEdit) ungated.
+func TestClaudeInstallUpgradesStaleMatcher(t *testing.T) {
+	stale := `{"hooks":{"PreToolUse":[{"matcher":"Bash|Edit|Write|MultiEdit","hooks":[{"type":"command","command":"` + hookCmd + `"}]}]}}`
+	out, note, err := ClaudeCode{}.Install([]byte(stale), hookCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pre := preToolUse(t, decodeSettingsJSON(t, out))
+	if len(pre) != 1 {
+		t.Fatalf("matcher upgrade must not duplicate the entry, got %d", len(pre))
+	}
+	if m := pre[0].(map[string]any)["matcher"]; m != claudeMatcher {
+		t.Errorf("matcher = %v, want %q", m, claudeMatcher)
+	}
+	if !strings.Contains(note, claudeMatcher) {
+		t.Errorf("the upgrade should be reported in the install note, got %q", note)
+	}
 }
 
 func TestClaudeUninstallIsInverse(t *testing.T) {
 	// install then uninstall should leave other entries intact and ours gone.
 	existing := `{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"other"}]}]}}`
-	installed, err := ClaudeCode{}.Install([]byte(existing), hookCmd)
+	installed, _, err := ClaudeCode{}.Install([]byte(existing), hookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +152,30 @@ func TestClaudeUninstallNoHooksKeyIsNoop(t *testing.T) {
 }
 
 func TestClaudeInstallRejectsMalformed(t *testing.T) {
-	if _, err := (ClaudeCode{}).Install([]byte(`{"hooks":"nope"}`), hookCmd); err == nil {
+	if _, _, err := (ClaudeCode{}).Install([]byte(`{"hooks":"nope"}`), hookCmd); err == nil {
 		t.Error("expected error when hooks is not an object")
+	}
+}
+
+// quotePathIfNeeded must neutralize shell metacharacters: the path is spliced
+// into a shell-executed hook command line, so an embedded quote, $(…), or
+// backtick must never escape the quoting. Plain paths stay byte-stable.
+func TestQuotePathIfNeeded(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{".ltk/config.yaml", ".ltk/config.yaml"}, // safe set: unquoted, byte-stable
+		{"/abs/p-2/.ltk_v1.yaml~", "/abs/p-2/.ltk_v1.yaml~"},
+		{"my dir/rules.yaml", `"my dir/rules.yaml"`}, // whitespace
+		{"a\tb.yaml", "\"a\tb.yaml\""},               // tab
+		{`pa"th.yaml`, `"pa\"th.yaml"`},              // embedded quote can't close ours
+		{"$(rm -rf x).yaml", `"\$(rm -rf x).yaml"`},  // command substitution neutralized
+		{"`id`.yaml", "\"\\`id\\`.yaml\""},           // backticks neutralized
+		{"a;b.yaml", `"a;b.yaml"`},                   // command separator quoted
+		{`back\slash.yaml`, `"back\\slash.yaml"`},    // backslash can't un-escape
+		{"${HOME}/r.yaml", `"\${HOME}/r.yaml"`},      // env reference stays literal
+	}
+	for _, c := range cases {
+		if got := quotePathIfNeeded(c.in); got != c.want {
+			t.Errorf("quotePathIfNeeded(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

@@ -119,7 +119,7 @@ func (Antigravity) HookCommand(bin, configPath string) string {
 
 // Install merges a PreToolUse hook running command into the hooks.json bytes.
 // agy prompts the user to trust a newly seen hook on first interactive run.
-func (Antigravity) Install(settings []byte, command string) ([]byte, error) {
+func (Antigravity) Install(settings []byte, command string) ([]byte, string, error) {
 	return mergePreToolUseHook(settings, antigravityMatcher, command)
 }
 

@@ -160,10 +160,10 @@ github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46t
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64 h1:GdM+fGzo0f0e7rG9zh/8Yz8/Zj8C372hSHagv/PpC4E=
 github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64/go.mod h1:qwPS1t0SFAS860y7ZfNung+wXGx5Sy/0fqfeHRDum7c=
-github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9 h1:Qee+XxRFM/koPqZytSJdZ7OW8DcMKyfl/x5rlF7CfU4=
-github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9/go.mod h1:JpPJ+oV9d0s7sklVE5G77ZDw/0LGMv063jeG2F0GH3U=
-github.com/ctxloom/shared v0.0.0-20260611004045-74721c6839c1 h1:i9AHmlL+mwQQwu5JGbsu3Wtw6Cz9ZIoQQ115DZy7nWw=
-github.com/ctxloom/shared v0.0.0-20260611004045-74721c6839c1/go.mod h1:f09YlhSM0SZxZd/7MG5nzTWCd/AwfjkDB2tLMFMzPFY=
+github.com/ctxloom/claude v0.0.0-20260611185559-7d6bc957308b h1:3DnCtaREM37g/GS0HIM8YtFr4OLKmhwL20PLx064I5g=
+github.com/ctxloom/claude v0.0.0-20260611185559-7d6bc957308b/go.mod h1:JpPJ+oV9d0s7sklVE5G77ZDw/0LGMv063jeG2F0GH3U=
+github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735 h1:1sywPB95+nrF7Mg2+yzlYbeIRA0A/9C6ZGoytdWfoXE=
+github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735/go.mod h1:vo1yigHJXdGn8C9DQv1/lOQ8GJS4YJw5yruTNekx0Qw=
 github.com/cucumber/gherkin/go/v26 v26.2.0 h1:EgIjePLWiPeslwIWmNQ3XHcypPsWAHoMCz/YEBKP4GI=
 github.com/cucumber/gherkin/go/v26 v26.2.0/go.mod h1:t2GAPnB8maCT4lkHL99BDCVNzCh1d7dBhCLt150Nr/0=
 github.com/cucumber/godog v0.15.1 h1:rb/6oHDdvVZKS66hrhpjFQFHjthFSrQBCOI1LwshNTI=

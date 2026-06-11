@@ -57,6 +57,107 @@ rules:
 			t.Error("malformed payload should surface as an error")
 		}
 	})
+
+	t.Run("wrapped denied command is denied (bash -ec cluster)", func(t *testing.T) {
+		// `bash -ec 'git push --force'` bundles -c into a short-option cluster; it
+		// must still be expanded and matched, or the wrapper is a trivial bypass.
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload("bash -ec 'git push --force'")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out.Stdout), `"deny"`) || !strings.Contains(string(out.Stdout), "no force pushes") {
+			t.Errorf("bash -ec wrapper must not bypass the rule, got %s", out.Stdout)
+		}
+	})
+}
+
+// A rules file that exists but cannot be parsed must DENY, not error: both hook
+// hosts fail OPEN on a non-zero exit (Claude Code treats exit 1 as non-blocking,
+// agy proceeds on any crashing hook), so a one-character typo in .ltk/config.yaml
+// erroring out would silently disable every rule.
+func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	// A typo'd key: rules.Parse rejects unknown fields.
+	broken := "version: 1\nrulez:\n  - id: oops\n"
+	if err := os.WriteFile(cfgPath, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	payloads := map[string]string{
+		"claude-code": `{"tool_name":"Bash","tool_input":{"command":"git push --force"}}`,
+		"antigravity": `{"toolCall":{"name":"run_command","args":{"CommandLine":"git push --force"}}}`,
+	}
+	for engineName, payload := range payloads {
+		t.Run(engineName, func(t *testing.T) {
+			out, err := evaluate(engineName, cfgPath, "", strings.NewReader(payload))
+			if err != nil {
+				t.Fatalf("a broken config must yield a decision, not an error (exit 1 fails open): %v", err)
+			}
+			if out.ExitCode != 0 {
+				t.Errorf("fail-closed decision must exit 0, got %d", out.ExitCode)
+			}
+			if !strings.Contains(string(out.Stdout), `"deny"`) {
+				t.Errorf("stdout should carry a deny decision, got %s", out.Stdout)
+			}
+			if !strings.Contains(string(out.Stdout), "rulez") {
+				t.Errorf("the deny reason should carry the parse error so the user can fix it, got %s", out.Stdout)
+			}
+		})
+	}
+
+	t.Run("missing explicit --config also fails closed", func(t *testing.T) {
+		// A typo'd --config path in an installed hook command is the same
+		// persistent fail-open hole as a broken file.
+		out, err := evaluate("claude-code", filepath.Join(t.TempDir(), "nope.yaml"), "",
+			strings.NewReader(payloads["claude-code"]))
+		if err != nil {
+			t.Fatalf("missing --config must deny, not error: %v", err)
+		}
+		if out.ExitCode != 0 || !strings.Contains(string(out.Stdout), `"deny"`) {
+			t.Errorf("want deny decision with exit 0, got %+v", out)
+		}
+	})
+}
+
+// An unknown --shell would otherwise hit ErrUnsupportedShell on every parse,
+// which the default on_parse_error: allow converts into a permanent silent
+// allow-all. A typo'd installed hook command is exactly the persistent case,
+// so the hook path must deny.
+func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push, --force] }\n    message: no\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	payloads := map[string]string{
+		"claude-code": `{"tool_name":"Bash","tool_input":{"command":"git status"}}`,
+		"antigravity": `{"toolCall":{"name":"run_command","args":{"CommandLine":"git status"}}}`,
+	}
+	for engineName, payload := range payloads {
+		t.Run(engineName, func(t *testing.T) {
+			out, err := evaluate(engineName, cfgPath, "fish", strings.NewReader(payload))
+			if err != nil {
+				t.Fatalf("unknown --shell must deny, not error: %v", err)
+			}
+			if out.ExitCode != 0 || !strings.Contains(string(out.Stdout), `"deny"`) {
+				t.Errorf("want deny decision with exit 0, got %+v", out)
+			}
+			if !strings.Contains(string(out.Stdout), "fish") {
+				t.Errorf("the deny reason should name the bad shell, got %s", out.Stdout)
+			}
+		})
+	}
+
+	t.Run("a known shell still evaluates normally", func(t *testing.T) {
+		out, err := evaluate("claude-code", cfgPath, "bash", strings.NewReader(payloads["claude-code"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Stdout) != 0 || out.ExitCode != 0 {
+			t.Errorf("git status under --shell bash must pass through, got %+v", out)
+		}
+	})
 }
 
 // TestEvaluateFindsConfigFromHookCwd pins the default-config search against
@@ -113,9 +214,75 @@ rules:
 	}
 }
 
-// Override state lives inside a .ltk directory: next to the config when the
-// config is already in one, otherwise .ltk/state.json in the cwd — never loose
-// in the repo root (legacy flat configs like .ltk.yaml used to cause that).
+// The .git repository boundary in the config search distinguishes gitfile
+// pointers from real .git directories: a submodule working tree (gitfile .git)
+// must inherit the superproject's rules, while a worktree or submodule with its
+// own .ltk keeps using it (the nearest config always wins).
+func TestConfigSearchCrossesGitfileBoundaries(t *testing.T) {
+	deny := func(message string) string {
+		return "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push, --force] }\n    message: \"" + message + "\"\n"
+	}
+	payload := `{"tool_name":"Bash","tool_input":{"command":"git push --force"}}`
+
+	t.Run("superproject rules apply inside a submodule", func(t *testing.T) {
+		super := t.TempDir()
+		sub := filepath.Join(super, "vendored", "lib")
+		for _, dir := range []string{filepath.Join(super, ".git"), filepath.Join(super, ".ltk"), sub} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(super, ".ltk", "config.yaml"), []byte(deny("superproject rules")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// A submodule working tree carries a gitfile-style .git FILE.
+		if err := os.WriteFile(filepath.Join(sub, ".git"), []byte("gitdir: ../../.git/modules/lib\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(sub)
+
+		out, err := evaluate("claude-code", "", "", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out.Stdout), "superproject rules") {
+			t.Fatalf("superproject rules must apply inside the submodule, got %+v", out)
+		}
+	})
+
+	t.Run("worktree with its own .ltk uses it, not an ancestor's", func(t *testing.T) {
+		parent := t.TempDir()
+		wt := filepath.Join(parent, "wt")
+		if err := os.MkdirAll(filepath.Join(wt, ".ltk"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// A linked worktree's root also carries a gitfile-style .git FILE.
+		if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/wt\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wt, ".ltk", "config.yaml"), []byte(deny("worktree rules")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// A config above the worktree must lose to the worktree's own.
+		if err := os.WriteFile(filepath.Join(parent, ".ltk.yaml"), []byte(deny("ancestor rules")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(wt)
+
+		out, err := evaluate("claude-code", "", "", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out.Stdout), "worktree rules") {
+			t.Fatalf("the worktree's own rules must win, got %+v", out)
+		}
+	})
+}
+
+// Override state lives inside a .ltk directory anchored to the resolved
+// config — next to it when the config is already in a .ltk dir, otherwise in a
+// .ltk/ beside the config file — never anywhere cwd-relative (hook hosts vary
+// the cwd, and confirm-by-repeat must find the same state both times).
 func TestStatePath(t *testing.T) {
 	tests := []struct {
 		name, config, want string
@@ -123,8 +290,10 @@ func TestStatePath(t *testing.T) {
 		{"ltk dir layout", filepath.Join(".ltk", "config.yaml"), filepath.Join(".ltk", "state.json")},
 		{"absolute ltk dir", filepath.Join("/home/u/proj", ".ltk", "config.yaml"), filepath.Join("/home/u/proj", ".ltk", "state.json")},
 		{"legacy flat config", ".ltk.yaml", filepath.Join(".ltk", "state.json")},
+		{"absolute legacy flat config", filepath.Join("/home/u/proj", ".ltk.yaml"), filepath.Join("/home/u/proj", ".ltk", "state.json")},
 		{"named flat config", "llm-tool-killer.yaml", filepath.Join(".ltk", "state.json")},
-		{"nested non-ltk config", filepath.Join(".config", "llm-tool-killer.yaml"), filepath.Join(".ltk", "state.json")},
+		{"nested non-ltk config", filepath.Join(".config", "llm-tool-killer.yaml"), filepath.Join(".config", ".ltk", "state.json")},
+		{"relative agy hook config", filepath.Join("..", ".ltk", "config.yaml"), filepath.Join("..", ".ltk", "state.json")},
 		{"no config resolved", "", filepath.Join(".ltk", "state.json")},
 	}
 	for _, tt := range tests {

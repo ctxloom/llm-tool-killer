@@ -54,6 +54,36 @@ func TestLowerFlattensNestedCommands(t *testing.T) {
 	}
 }
 
+// Parser-reported errors must surface as a parse error (alongside whatever
+// partial AST was salvaged) so the configured on_parse_error policy applies —
+// swallowing them would mean unparseable PowerShell is matched against a
+// partial command list and silently allowed by default.
+func TestParserErrorsSurfaceAsParseError(t *testing.T) {
+	f := fake(`{"commands":[{"argv":[{"k":"lit","v":"Remove-Item"}]}],"hasErrors":true,"errors":["Missing closing '}'"]}`)
+	s, err := f.Parse(context.Background(), ir.ShellPwsh, "if ($x) { Remove-Item")
+	if err == nil {
+		t.Fatal("hasErrors must yield a parse error")
+	}
+	if !strings.Contains(err.Error(), "Missing closing '}'") {
+		t.Errorf("the parser's message should ride in the error, got %v", err)
+	}
+	if s == nil {
+		t.Fatal("on parse error want a non-nil script (Frontend contract)")
+	}
+	if len(s.Commands()) != 1 {
+		t.Errorf("salvaged commands should still be lowered, got %+v", s.Commands())
+	}
+}
+
+// hasErrors without messages still errors (the policy must apply either way).
+func TestParserErrorsWithoutDetail(t *testing.T) {
+	f := fake(`{"commands":[],"hasErrors":true}`)
+	_, err := f.Parse(context.Background(), ir.ShellPwsh, "if (")
+	if err == nil || !strings.Contains(err.Error(), "parse error") {
+		t.Fatalf("want a parse error, got %v", err)
+	}
+}
+
 func TestRunnerErrorPropagates(t *testing.T) {
 	want := errors.New("boom")
 	f := &Frontend{run: func(context.Context, string) ([]byte, error) { return nil, want }}
@@ -92,5 +122,12 @@ func TestIntegrationRealParser(t *testing.T) {
 	cmds := s.Commands()
 	if len(cmds) == 0 || cmds[0].Program() != "Get-ChildItem" {
 		t.Fatalf("commands = %+v", cmds)
+	}
+
+	// Unparseable input must come back as a parse error so on_parse_error applies.
+	if _, err := New().Parse(context.Background(), ir.ShellPwsh, "if ("); err == nil {
+		t.Error("real parser: unparseable input must yield a parse error")
+	} else if strings.Contains(err.Error(), "signal: killed") {
+		t.Skipf("pwsh process killed by the environment: %v", err)
 	}
 }

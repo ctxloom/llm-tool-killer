@@ -40,6 +40,46 @@ func TestSubmodulePathsWalksUp(t *testing.T) {
 	}
 }
 
+// The walk must not leave the repository: an inner repo nested under a parent
+// that has a .gitmodules must NOT inherit the parent's submodule paths (they
+// are relative to the parent and expand into spurious denials inside the inner
+// repo). The first .git — file (gitfile pointer) or directory — is the boundary.
+func TestSubmodulePathsStopAtRepositoryRoot(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	if err := afero.WriteFile(fs, "/outer/.gitmodules", []byte("[submodule \"x\"]\n\tpath = x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.MkdirAll("/outer/.git", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("inner repo with a .git directory", func(t *testing.T) {
+		if err := fs.MkdirAll("/outer/inner/.git", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := SubmodulePaths(fs, "/outer/inner/src"); got != nil {
+			t.Fatalf("parent repo's submodules leaked into the inner repo: %v", got)
+		}
+	})
+
+	t.Run("inner repo with a gitfile-style .git file", func(t *testing.T) {
+		if err := afero.WriteFile(fs, "/outer/gitfile/.git", []byte("gitdir: /outer/.git/modules/gitfile\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := SubmodulePaths(fs, "/outer/gitfile"); got != nil {
+			t.Fatalf("parent repo's submodules leaked past a gitfile boundary: %v", got)
+		}
+	})
+
+	// The repo's own root keeps working: .gitmodules is read before the .git
+	// check stops the walk.
+	t.Run("the repository's own .gitmodules still resolves", func(t *testing.T) {
+		if got := SubmodulePaths(fs, "/outer/a/b"); !reflect.DeepEqual(got, []string{"x"}) {
+			t.Fatalf("repo root .gitmodules = %v, want [x]", got)
+		}
+	})
+}
+
 // No .gitmodules anywhere → nil (the rule then matches nothing).
 func TestSubmodulePathsNone(t *testing.T) {
 	fs := afero.NewMemMapFs()

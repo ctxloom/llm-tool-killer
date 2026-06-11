@@ -31,7 +31,10 @@ const parseTimeout = 5 * time.Second
 var ErrUnavailable = errors.New("powershell executable not found")
 
 // parseScript reads the target command from $env:LTK_SRC, parses it with the
-// native parser (no execution), and writes JSON describing every command.
+// native parser (no execution), and writes JSON describing every command. It
+// also reports the parser's errors ($e): a command PowerShell could not parse
+// must surface as a parse error so the on_parse_error policy applies, instead
+// of being matched against whatever partial AST the parser salvaged.
 const parseScript = `
 $ErrorActionPreference='Stop'
 $src=$env:LTK_SRC
@@ -46,7 +49,8 @@ $list=foreach($c in $cmds){
   }
   @{argv=@($argv)}
 }
-@{commands=@($list)}|ConvertTo-Json -Depth 8 -Compress
+$errs=foreach($pe in $e){$pe.Message}
+@{commands=@($list);hasErrors=($null -ne $e -and $e.Count -gt 0);errors=@($errs)}|ConvertTo-Json -Depth 8 -Compress
 `
 
 // Frontend lowers PowerShell into the IR.
@@ -84,12 +88,20 @@ type psCommand struct {
 }
 
 type psResult struct {
-	Commands []psCommand `json:"commands"`
+	Commands  []psCommand `json:"commands"`
+	HasErrors bool        `json:"hasErrors"`
+	Errors    []string    `json:"errors"`
 }
 
 // lower maps the PowerShell parser's JSON into the IR. Every CommandAst becomes
 // a SimpleCommand; structure (pipelines, blocks, subexpressions) is flattened,
 // which is sufficient because rules are matched against every command.
+//
+// When the parser reported errors, lower still lowers whatever commands it
+// salvaged (the Frontend contract wants a non-nil Script) but returns a parse
+// error alongside, so the caller's on_parse_error policy decides — matching a
+// partial AST as if it were the whole command would let a mangled-but-runnable
+// command slip past the rules.
 func lower(data []byte, shell ir.Shell) (*ir.Script, error) {
 	var r psResult
 	if err := json.Unmarshal(data, &r); err != nil {
@@ -102,6 +114,13 @@ func lower(data []byte, shell ir.Shell) (*ir.Script, error) {
 			sc.Argv = append(sc.Argv, el.V)
 		}
 		script.Pipelines = append(script.Pipelines, ir.Pipeline{Commands: []ir.SimpleCommand{sc}})
+	}
+	if r.HasErrors {
+		detail := strings.Join(r.Errors, "; ")
+		if detail == "" {
+			detail = "unspecified parse error"
+		}
+		return script, fmt.Errorf("pwsh: parse error: %s", detail)
 	}
 	return script, nil
 }
