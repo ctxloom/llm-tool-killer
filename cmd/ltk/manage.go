@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/llm-tool-killer/internal/engine"
+	"github.com/ctxloom/shared/iox"
 )
 
 func newManageCmd() *cobra.Command {
@@ -204,39 +205,20 @@ func readIfExists(path string) ([]byte, error) {
 	return b, nil
 }
 
-// writeFile writes data to path atomically: a sibling temp file renamed into
-// place (the same pattern as state.Store.Save), so an interrupt mid-write can
-// never leave a truncated settings file — those files hold the user's
-// unrelated config too. An existing file's permissions are preserved.
+// writeFile writes data to path atomically via shared/iox (a sibling temp file
+// fsynced and renamed into place), so an interrupt mid-write can never leave a
+// truncated settings file — those files hold the user's unrelated config too.
+// The parent dir is created and an existing file's permissions are preserved.
 func writeFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	mode := os.FileMode(0o644)
 	if fi, err := os.Stat(path); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := iox.WriteFileAtomic(path, data, mode); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

@@ -4,38 +4,55 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/ctxloom/shared/cliversion"
 )
 
-func TestPrintVersionTextEmitsBareVersion(t *testing.T) {
+// runVersion drives the real version command with the given --format and
+// returns its stdout. It exercises ltk's wiring (name=progName) on top of the
+// shared cliversion.Render contract.
+func runVersion(t *testing.T, format string) (string, error) {
+	t.Helper()
+	cmd := newVersionCmd()
 	var buf bytes.Buffer
-	if err := printVersion(&buf, "text"); err != nil {
-		t.Fatalf("printVersion: %v", err)
+	cmd.SetOut(&buf)
+	if err := cmd.Flags().Set("format", format); err != nil {
+		t.Fatalf("set format: %v", err)
 	}
-	if got, want := buf.String(), Version+"\n"; got != want {
-		t.Fatalf("text output = %q, want %q", got, want)
+	err := cmd.RunE(cmd, nil)
+	return buf.String(), err
+}
+
+func TestVersionTextEmitsBareVersion(t *testing.T) {
+	out, err := runVersion(t, "text")
+	if err != nil {
+		t.Fatalf("version text: %v", err)
+	}
+	if want := Version + "\n"; out != want {
+		t.Fatalf("text output = %q, want %q", out, want)
 	}
 }
 
-func TestPrintVersionJSONEmitsNameAndVersion(t *testing.T) {
-	var buf bytes.Buffer
-	if err := printVersion(&buf, "json"); err != nil {
-		t.Fatalf("printVersion: %v", err)
+func TestVersionJSONEmitsNameAndVersion(t *testing.T) {
+	out, err := runVersion(t, "json")
+	if err != nil {
+		t.Fatalf("version json: %v", err)
 	}
-	var got versionInfo
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal %q: %v", buf.String(), err)
+	var got cliversion.Info
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal %q: %v", out, err)
 	}
 	if got.Name != progName || got.Version != Version {
 		t.Fatalf("json output = %+v, want {Name: %q, Version: %q}", got, progName, Version)
 	}
 }
 
-func TestPrintVersionUnknownFormatErrors(t *testing.T) {
-	var buf bytes.Buffer
-	if err := printVersion(&buf, "yaml"); err == nil {
+func TestVersionUnknownFormatErrors(t *testing.T) {
+	out, err := runVersion(t, "yaml")
+	if err == nil {
 		t.Fatal("want error for unknown format")
 	}
-	if buf.Len() != 0 {
-		t.Fatalf("unknown format must not write output, got %q", buf.String())
+	if len(out) != 0 {
+		t.Fatalf("unknown format must not write output, got %q", out)
 	}
 }
