@@ -5,6 +5,9 @@
 *.out
 coverage.*
 
+# Devcontainer module/build cache (GOMODCACHE/GOCACHE under /workspace/.cache)
+.cache/
+
 # ltk "confirm by repeating" override state (runtime, regenerable)
 .ltk/state.json
 

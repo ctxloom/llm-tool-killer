@@ -5,9 +5,10 @@ bin := "bin/ltk"
 pkg := "./cmd/ltk"
 
 # Version from versionator (fallback "dev" where versionator isn't available).
-# Requires versionator >= v0.2.0 (DateTimeDirty + `output version`). Same version
-# string format as ctxloom: v<major.minor.patch>[-<shorthash><dirty timestamp>].
-version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
+# Standardized stamp format across the ctxloom family:
+#   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
+# versionator emits the compact datetime (no separator); sed inserts the 'T'.
+version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{CommitDateCompact}}" --prefix 2>/dev/null); then echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'; else echo dev; fi`
 ldflags := "-X main.Version=" + version
 
 # List available recipes.
