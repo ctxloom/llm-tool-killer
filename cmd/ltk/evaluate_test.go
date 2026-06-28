@@ -52,9 +52,16 @@ rules:
 		}
 	})
 
-	t.Run("unreadable payload is an error", func(t *testing.T) {
-		if _, err := evaluate("claude-code", cfgPath, "", strings.NewReader("not json")); err == nil {
-			t.Error("malformed payload should surface as an error")
+	t.Run("malformed payload fails closed (denies, not errors)", func(t *testing.T) {
+		// A payload that can't be decoded must DENY, not exit non-zero: both hosts
+		// treat a non-zero exit as a silent allow, so an undecodable/version-skewed
+		// payload would otherwise sail past the guard ungated.
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader("not json"))
+		if err != nil {
+			t.Fatalf("malformed payload must not surface as an error: %v", err)
+		}
+		if out.ExitCode != 0 || !strings.Contains(string(out.Stdout), `"deny"`) {
+			t.Errorf("malformed payload should produce a deny decision, got %+v", out)
 		}
 	})
 
@@ -158,6 +165,28 @@ func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
 			t.Errorf("git status under --shell bash must pass through, got %+v", out)
 		}
 	})
+}
+
+// An unknown --engine in the installed hook would otherwise exit 1, which both
+// hosts treat as a silent allow. There is no adapter for the named engine, so
+// evaluate falls back to claude-code's wire format purely to emit a deny.
+func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push, --force] }\n    message: no\n"
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"tool_name":"Bash","tool_input":{"command":"git status"}}`
+	out, err := evaluate("not-an-engine", cfgPath, "", strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("unknown --engine must deny, not error: %v", err)
+	}
+	if out.ExitCode != 0 || !strings.Contains(string(out.Stdout), `"deny"`) {
+		t.Errorf("want deny decision with exit 0, got %+v", out)
+	}
+	if !strings.Contains(string(out.Stdout), "not-an-engine") {
+		t.Errorf("the deny reason should name the bad engine, got %s", out.Stdout)
+	}
 }
 
 // TestEvaluateFindsConfigFromHookCwd pins the default-config search against

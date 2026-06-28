@@ -98,8 +98,10 @@ type Engine interface {
 	// a human-facing note when the merge repaired an existing install (e.g.
 	// upgraded a stale matcher), empty otherwise.
 	Install(settings []byte, command string) (data []byte, note string, err error)
-	// Uninstall removes any hook running command from the settings bytes.
-	Uninstall(settings []byte, command string) ([]byte, error)
+	// Uninstall removes any hook running command from the settings bytes. removed
+	// reports whether a matching hook was actually found and dropped, so callers
+	// can skip a no-op rewrite and avoid claiming a removal that did not happen.
+	Uninstall(settings []byte, command string) (data []byte, removed bool, err error)
 }
 
 // engines is the registry of known engines. Order matters for Detect ties:

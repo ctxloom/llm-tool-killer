@@ -145,23 +145,29 @@ func TestAntigravityUninstallIsInverse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed, err := Antigravity{}.Uninstall(installed, agHookCmd)
+	out, didRemove, err := Antigravity{}.Uninstall(installed, agHookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pre := preToolUse(t, decodeSettingsJSON(t, removed))
+	if !didRemove {
+		t.Error("uninstall should report removed=true when it dropped our hook")
+	}
+	pre := preToolUse(t, decodeSettingsJSON(t, out))
 	if len(pre) != 1 {
 		t.Fatalf("want 1 entry after uninstall, got %d", len(pre))
 	}
-	if strings.Contains(string(removed), agHookCmd) {
+	if strings.Contains(string(out), agHookCmd) {
 		t.Error("our hook command should be gone")
 	}
 }
 
 func TestAntigravityUninstallNoHooksKeyIsNoop(t *testing.T) {
-	out, err := Antigravity{}.Uninstall([]byte(`{"futureSetting":true}`), agHookCmd)
+	out, didRemove, err := Antigravity{}.Uninstall([]byte(`{"futureSetting":true}`), agHookCmd)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if didRemove {
+		t.Error("nothing to remove → removed must be false")
 	}
 	if !strings.Contains(string(out), "futureSetting") {
 		t.Error("uninstall should preserve unrelated settings")

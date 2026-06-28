@@ -134,13 +134,20 @@ func newUninstallCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, progName+": nothing to uninstall (%s not found)\n", path)
 				return nil
 			}
-			updated, err := eng.Uninstall(existing, command)
+			updated, removed, err := eng.Uninstall(existing, command)
 			if err != nil {
 				return err
 			}
 			if f.printOnly {
 				_, err := os.Stdout.Write(updated)
 				return err
+			}
+			// No matching hook (e.g. installed under different --bin/--config flags
+			// than these): don't rewrite the user's settings file or claim a removal
+			// that didn't happen.
+			if !removed {
+				fmt.Fprintf(os.Stderr, progName+": no matching hook found in %s (nothing removed)\n", path)
+				return nil
 			}
 			if err := writeFile(path, updated); err != nil {
 				return err

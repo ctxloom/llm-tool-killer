@@ -35,7 +35,7 @@ install:
 
 # Show the version that builds will stamp.
 show-version:
-    @versionator output version
+    @echo "{{version}}"
 
 # Set the release version in a PR (the only supported way to release).
 # Releases are merge-triggered: bump here, commit VERSION, merge — CI tags it.

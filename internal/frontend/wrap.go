@@ -56,7 +56,12 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 		for ci := range cmds {
 			sc := &cmds[ci]
 			if inner, shell, ok := wrappedCommand(sc.Argv, s.Shell); ok && inner != "" {
-				if nested, err := r.Parse(ctx, shell, inner); err == nil && nested != nil {
+				// Append whatever the inner frontend salvaged even on a parse error:
+				// the Frontend contract returns a non-nil (possibly partial) Script
+				// alongside an error so callers can still match the commands it did
+				// recover. Dropping those would fail OPEN for a guard. An unsupported
+				// inner shell yields a nil Script (nothing to add).
+				if nested, _ := r.Parse(ctx, shell, inner); nested != nil {
 					sc.Nested = append(sc.Nested, nested)
 				}
 			}
@@ -103,15 +108,76 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 			continue
 		}
 		rest := args[i+1:]
-		if len(rest) == 0 {
-			return "", false
-		}
-		if rule.joinRest {
+		if rule.joinRest { // cmd /c, pwsh -Command: everything after the flag
+			if len(rest) == 0 {
+				return "", false
+			}
 			return strings.Join(rest, " "), true
 		}
-		return rest[0], true
+		// POSIX `-c`: the command string is the first OPERAND after the flag, not
+		// blindly the next token. A shell skips any options that follow `-c`, honors
+		// `--` (the next token is then the command even if it begins with '-'), and
+		// reads an argument-consuming option's value (`-o name`, including one
+		// bundled into the matched cluster like `-oc name`) from the following word.
+		// Mis-locating this operand is a guard bypass — `bash -c -- 'rm -rf /'` and
+		// `bash -oc errexit 'rm -rf /'` both run the inner command — so the wrapper
+		// must re-parse the real one, not `--`/`-x`/the option name.
+		if clusterTakesOptArg(a) { // the matched cluster's `-o` eats rest[0]
+			if len(rest) == 0 {
+				return "", false
+			}
+			rest = rest[1:]
+		}
+		return posixCommandOperand(rest)
 	}
 	return "", false
+}
+
+// posixCommandOperand returns the command_string of a POSIX `sh -c` invocation:
+// scanning args, it steps over option tokens (and the argument of an
+// argument-consuming `-o`/`+o` option), and on `--` takes the very next token
+// verbatim. The first non-option token is the command string.
+func posixCommandOperand(args []string) (string, bool) {
+	for i := 0; i < len(args); i++ {
+		tok := args[i]
+		switch {
+		case tok == "--":
+			if i+1 < len(args) {
+				return args[i+1], true // option terminator: next token is the command
+			}
+			return "", false
+		case isPosixOption(tok):
+			if clusterTakesOptArg(tok) {
+				i++ // step over the option's argument (the `-o` option name)
+			}
+		default:
+			return tok, true // first operand is the command string
+		}
+	}
+	return "", false
+}
+
+// isPosixOption reports whether tok is an option token (`-x`, `--long`, `+o`)
+// rather than an operand. A lone "-" (stdin) and the empty string are operands.
+func isPosixOption(tok string) bool {
+	return len(tok) > 1 && (tok[0] == '-' || tok[0] == '+')
+}
+
+// clusterTakesOptArg reports whether a short-option token consumes the NEXT
+// token as its argument, i.e. it bundles an `-o`/`+o` (set/unset a named shell
+// option, e.g. `set -o errexit`). POSIX shells read that option name from the
+// following word, so the command string sits one token further along. Long
+// options (`--…`) never qualify.
+func clusterTakesOptArg(tok string) bool {
+	if !isPosixOption(tok) || strings.HasPrefix(tok, "--") {
+		return false
+	}
+	for _, r := range tok[1:] {
+		if r == 'o' || r == 'O' {
+			return true
+		}
+	}
+	return false
 }
 
 // flagMatches reports whether arg is this rule's wrapper flag, folding case
@@ -136,10 +202,11 @@ func (rule wrapperRule) flagMatches(arg string) bool {
 // does not consume the next token as a getopt argument — the command string is
 // the first operand after the options — so `-ce` and `-ec` behave alike.
 //
-// A cluster containing 'o' or 'O' is rejected: those POSIX shell options DO
-// consume the next argument (`set -o`-style option names), so the token after
-// the cluster is that argument, not the command. Better to skip expansion (the
-// pre-fix behavior) than to mis-parse the wrong token as the inner command.
+// A cluster containing 'o'/'O' is an argument-consuming `set -o`-style option:
+// it reads its option name from the NEXT word, so the command string sits one
+// token further along. That extra token is handled by extract/posixCommandOperand
+// (clusterTakesOptArg), so such clusters are accepted here rather than skipped —
+// dropping them was a residual bypass (`bash -oc errexit 'rm -rf /'`).
 func clusterHasFlag(arg, flag string) bool {
 	if len(flag) != 2 || flag[0] != '-' {
 		return false
@@ -152,8 +219,6 @@ func clusterHasFlag(arg, flag string) bool {
 		switch {
 		case !unicode.IsLetter(r):
 			return false // not a pure flag cluster (e.g. "-c5", "-o:")
-		case r == 'o' || r == 'O':
-			return false // argument-consuming option: next token is not the command
 		case r == rune(flag[1]):
 			found = true
 		}

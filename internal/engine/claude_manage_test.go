@@ -128,26 +128,71 @@ func TestClaudeUninstallIsInverse(t *testing.T) {
 	if len(preToolUse(t, decodeSettingsJSON(t, installed))) != 2 {
 		t.Fatal("install should have added our entry")
 	}
-	removed, err := ClaudeCode{}.Uninstall(installed, hookCmd)
+	out, didRemove, err := ClaudeCode{}.Uninstall(installed, hookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pre := preToolUse(t, decodeSettingsJSON(t, removed))
+	if !didRemove {
+		t.Error("uninstall should report removed=true when it dropped our hook")
+	}
+	pre := preToolUse(t, decodeSettingsJSON(t, out))
 	if len(pre) != 1 {
 		t.Fatalf("want 1 entry after uninstall, got %d", len(pre))
 	}
-	if strings.Contains(string(removed), hookCmd) {
+	if strings.Contains(string(out), hookCmd) {
 		t.Error("our hook command should be gone")
 	}
 }
 
 func TestClaudeUninstallNoHooksKeyIsNoop(t *testing.T) {
-	out, err := ClaudeCode{}.Uninstall([]byte(`{"model":"opus"}`), hookCmd)
+	out, didRemove, err := ClaudeCode{}.Uninstall([]byte(`{"model":"opus"}`), hookCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if didRemove {
+		t.Error("nothing to remove → removed must be false")
+	}
 	if !strings.Contains(string(out), "opus") {
 		t.Error("uninstall should preserve unrelated settings")
+	}
+}
+
+// Uninstalling with a command that doesn't match any installed hook (e.g.
+// different --bin/--config flags than the install) must report removed=false so
+// the caller can skip the rewrite instead of claiming a removal.
+func TestClaudeUninstallNonMatchingReportsNotRemoved(t *testing.T) {
+	installed, _, err := ClaudeCode{}.Install(nil, hookCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, didRemove, err := ClaudeCode{}.Uninstall(installed, "ltk evaluate --config OTHER.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if didRemove {
+		t.Error("a non-matching command must report removed=false")
+	}
+}
+
+// A PreToolUse entry whose hooks array holds both our command and a sibling must
+// survive uninstall with the sibling intact and ours gone.
+func TestClaudeUninstallKeepsSiblingHook(t *testing.T) {
+	existing := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"` + hookCmd + `"},{"type":"command","command":"sibling"}]}]}}`
+	out, didRemove, err := ClaudeCode{}.Uninstall([]byte(existing), hookCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !didRemove {
+		t.Error("our hook should have been removed")
+	}
+	if strings.Contains(string(out), hookCmd) {
+		t.Error("our hook command should be gone")
+	}
+	if !strings.Contains(string(out), "sibling") {
+		t.Error("the sibling hook must be preserved")
+	}
+	if len(preToolUse(t, decodeSettingsJSON(t, out))) != 1 {
+		t.Error("the entry should survive because it still has the sibling hook")
 	}
 }
 

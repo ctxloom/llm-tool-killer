@@ -90,7 +90,17 @@ func runEvaluate(engineName, cfgPath string, forceShell ir.Shell) error {
 func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) (engine.Output, error) {
 	adapter, err := engine.Get(engineName)
 	if err != nil {
-		return engine.Output{}, err
+		// An unknown --engine in the installed hook (a manual edit or a cross-version
+		// rename) would otherwise exit 1, which both hosts treat as a silent allow.
+		// There is no adapter for the named engine to deny with, so fall back to the
+		// claude-code adapter purely to emit a well-formed fail-closed deny.
+		fallback, ferr := engine.Get("claude-code")
+		if ferr != nil {
+			return engine.Output{}, err // unreachable in practice; nothing to deny with
+		}
+		return failClosed(fallback, fmt.Sprintf(
+			"%s is misconfigured: unknown --engine %q; denying everything it guards until the hook command is fixed",
+			progName, engineName))
 	}
 	// A typo'd --shell in the installed hook command would otherwise surface as
 	// ErrUnsupportedShell on every parse, which the default on_parse_error: allow
@@ -115,13 +125,19 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	if wd, err := os.Getwd(); err == nil {
 		cfg.ExpandSubmodules(scm.SubmodulePaths(afero.NewOsFs(), wd))
 	}
+	// Reading or decoding the hook payload could otherwise return a plain error
+	// → exit 1 → fail OPEN on both hosts (the same silent allow-all the --shell
+	// and config branches above guard against). An adapter is in hand here, so a
+	// malformed/version-skewed payload denies rather than sails through ungated.
 	input, err := io.ReadAll(stdin)
 	if err != nil {
-		return engine.Output{}, fmt.Errorf("read stdin: %w", err)
+		return failClosed(adapter, fmt.Sprintf(
+			"%s could not read the hook payload and is denying this action: %v", progName, err))
 	}
 	req, err := adapter.Decode(input)
 	if err != nil {
-		return engine.Output{}, fmt.Errorf("decode hook input: %w", err)
+		return failClosed(adapter, fmt.Sprintf(
+			"%s could not parse the hook payload and is denying this action: %v", progName, err))
 	}
 
 	a := app.New(cfg)

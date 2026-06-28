@@ -1,8 +1,8 @@
 name: Release
 
-# Fires when a v* tag is pushed (e.g. by `just release`, which Versionator
-# creates and pushes). Builds cross-platform binaries and publishes a GitHub
-# Release via GoReleaser.
+# Fires on a v* tag pushed by auto-release.yml after a VERSION bump merges to
+# main (the version is set in the PR via `just set-version`). Builds
+# cross-platform binaries and publishes a GitHub Release via GoReleaser.
 on:
   push:
     tags:

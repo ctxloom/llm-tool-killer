@@ -173,8 +173,14 @@ type Match struct {
 	// still match. Remaining tokens are classified per the command's shell into:
 	//
 	//   - positional args (e.g. subcommands like `test`, `commit`): order
-	//     matters; they must appear as an ordered prefix of the command's
-	//     non-option arguments.
+	//     matters; they must appear in order (an ordered subsequence) among the
+	//     command's non-option arguments. Subsequence — not strict prefix — so a
+	//     value-taking option whose value lands among the operands (the matcher
+	//     can't know `-C`/`--context`/`--prefix` consume a word) cannot push the
+	//     subcommand out of position: `git -C /repo push`, `docker --context prod
+	//     build`, and `npm --prefix /x run …` still match. The trade-off is that a
+	//     positional may match a non-leading operand of the same spelling; that
+	//     only ever widens what a deny rule catches (fail-safe).
 	//   - options (any flag: `-c`, `-x`, `--no-cache`, and `/c` under cmd): no
 	//     implied order; each must appear somewhere in the command's arguments,
 	//     and they never consume a positional slot.
@@ -341,8 +347,8 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
 // using the command's shell to classify flags. See Match.Command for the model.
 //
 //   - pattern[0] (the program) matches argv[0] exactly or by basename.
-//   - positional pattern tokens (non-options) must be an ordered prefix of the
-//     command's non-option arguments.
+//   - positional pattern tokens (non-options) must appear in order among the
+//     command's non-option arguments (an ordered subsequence).
 //   - option pattern tokens (flags) must each appear somewhere in args, in any
 //     order (with bundled short options expanded, e.g. -rf ⇒ -r, -f).
 func matchCommand(pattern, argv []string, shell ir.Shell) bool {
@@ -360,7 +366,7 @@ func matchCommand(pattern, argv []string, shell ir.Shell) bool {
 			return false
 		}
 	}
-	return isPrefix(positionals, classifyOperands(args, shell))
+	return isSubsequence(positionals, classifyOperands(args, shell))
 }
 
 // classifyArgs splits pattern tokens into positionals (operands) and options.
@@ -386,17 +392,28 @@ func classifyOperands(args []string, shell ir.Shell) []string {
 	return operands
 }
 
-// isPrefix reports whether prefix matches the start of s, positionally.
-func isPrefix(prefix, s []string) bool {
-	if len(prefix) > len(s) {
-		return false
-	}
-	for i, w := range prefix {
-		if s[i] != w {
-			return false
+// isSubsequence reports whether every element of sub appears in s in the same
+// order, with any other elements allowed in between. Positionals match as an
+// ordered subsequence (not a strict prefix) of the command's operands so that a
+// value-taking option whose VALUE lands among the operands cannot shift the real
+// subcommand out of match position: the matcher has no per-program knowledge of
+// which options consume a word, so `git -C /repo push`, `docker --context prod
+// build`, and `npm --prefix /x run …` still match `[git, push]`, `[docker,
+// build]`, and `[npm, run]`. Order is still required (a reversed operand
+// sequence does not match). The trade-off — a positional may match a non-leading
+// operand of the same spelling — fails safe (it widens, never narrows, what a
+// deny rule catches); see Match.Command.
+func isSubsequence(sub, s []string) bool {
+	i := 0
+	for _, w := range s {
+		if i == len(sub) {
+			break
+		}
+		if w == sub[i] {
+			i++
 		}
 	}
-	return true
+	return i == len(sub)
 }
 
 // isOption reports whether a token is an option (a flag) for the given shell, as
@@ -499,23 +516,31 @@ func (c *Config) normalizeAndValidate() error {
 		if err := validateRule(&c.Rules[i], i, seen); err != nil {
 			return err
 		}
-		if err := validateConfirmDelay(&c.Rules[i], c.Defaults); err != nil {
+		if err := validateConfirm(&c.Rules[i], c.Defaults); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// validateConfirmDelay rejects a delay_seconds that can never be satisfied: it
-// needs a positive confirm window to live in, and must be shorter than it (the
-// repeat is honored only in the band [delay, window] after the first denial).
-func validateConfirmDelay(r *Rule, d Defaults) error {
-	repeatable, window, delay := r.confirmPolicy(d)
-	if delay <= 0 {
+// validateConfirm checks a confirm-mode rule's window/delay coherence. A
+// `confirm` rule needs a positive window to live in (a per-rule window_seconds
+// or defaults.repeat_window_seconds): without one it can never be confirmed and
+// silently behaves like an inviolate `enable` rule — the exact inverse of the
+// time-boxed escape hatch `mode: confirm` is for — so it is rejected rather than
+// left to mislead. A delay_seconds in turn must fit inside that window: positive
+// and strictly less than it (the repeat is honored only in the band
+// [delay, window] after the first denial). Non-confirm rules are unaffected.
+func validateConfirm(r *Rule, d Defaults) error {
+	if r.mode() != ModeConfirm {
 		return nil
 	}
+	repeatable, window, delay := r.confirmPolicy(d)
 	if !repeatable {
-		return fmt.Errorf("rule %q: delay_seconds needs a confirm window (set window_seconds or defaults.repeat_window_seconds)", r.ID)
+		return fmt.Errorf("rule %q: mode confirm needs a window; set window_seconds or defaults.repeat_window_seconds", r.ID)
+	}
+	if delay <= 0 {
+		return nil
 	}
 	if delay >= window {
 		return fmt.Errorf("rule %q: delay_seconds (%d) must be less than the confirm window (%d)", r.ID, delay, window)

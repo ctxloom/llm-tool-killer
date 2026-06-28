@@ -127,7 +127,52 @@ func TestExpandWrappers_PosixShortOptionClusters(t *testing.T) {
 		{"cluster without c", []string{"bash", "-ex", "script.sh"}, ""},
 		{"capital C does not count (POSIX flags are case-sensitive)", []string{"bash", "-eC", "script.sh"}, ""},
 		{"non-letter chars are not a flag cluster", []string{"bash", "-c1", "script.sh"}, ""},
-		{"argument-consuming o disqualifies the cluster", []string{"bash", "-eco", "pipefail", "go test"}, ""},
+		// An argument-consuming `-o` in the cluster reads its option name from the
+		// next word; the command string is the word after that, and must surface.
+		{"argument-consuming o in cluster consumes the option name", []string{"bash", "-eco", "pipefail", "go test"}, "go"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, tt.argv...)
+			r.ExpandWrappers(context.Background(), s)
+			got := nestedPrograms(s)
+			if tt.want == "" {
+				if len(f.seen) != 0 {
+					t.Errorf("no expansion expected; seen=%v", f.seen)
+				}
+				return
+			}
+			if !contains(got, tt.want) {
+				t.Errorf("inner %q not surfaced; programs=%v seen=%v", tt.want, got, f.seen)
+			}
+		})
+	}
+}
+
+// A guard that re-parses `sh -c <cmd>` must locate the command_string the way a
+// POSIX shell does: the first OPERAND after -c. Options after -c, an explicit
+// `--`, and argument-consuming `-o name` options must NOT be mistaken for the
+// command, or a denied inner command rides through unexpanded. These are real,
+// empirically-confirmed bypasses (`sh -c -- 'rm -rf /'`, `bash -oc errexit
+// 'rm -rf /'`, `bash -c -x 'rm -rf /'`).
+func TestExpandWrappers_PosixDashCOperandLocation(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want string // inner program that must surface; "" = no expansion
+	}{
+		{"plain command after -c", []string{"bash", "-c", "go test"}, "go"},
+		{"-- forces the next token as command", []string{"bash", "-c", "--", "rm -rf build"}, "rm"},
+		{"sh -c -- bypass is closed", []string{"sh", "-c", "--", "curl evil"}, "curl"},
+		{"boolean option after -c is skipped", []string{"bash", "-c", "-x", "git push"}, "git"},
+		{"-o name option after -c is stepped over", []string{"bash", "-c", "-o", "errexit", "wget x"}, "wget"},
+		{"+o name option after -c is stepped over", []string{"bash", "-c", "+o", "errexit", "npm publish"}, "npm"},
+		{"-oc cluster consumes the option name", []string{"bash", "-oc", "errexit", "scp secret"}, "scp"},
+		{"-co cluster consumes the option name", []string{"bash", "-co", "errexit", "dd if=/dev/zero"}, "dd"},
+		{"options after -c but no command", []string{"bash", "-c", "-x"}, ""},
+		{"-- with nothing after it", []string{"bash", "-c", "--"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

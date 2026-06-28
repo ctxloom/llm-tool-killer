@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	claudecli "github.com/ctxloom/claude"
+	"github.com/ctxloom/shared/agent"
 
 	"github.com/ctxloom/llm-tool-killer/internal/ir"
 )
@@ -171,7 +172,7 @@ func (ClaudeCode) Install(settings []byte, command string) ([]byte, string, erro
 }
 
 // Uninstall removes any PreToolUse hook running command from the settings JSON.
-func (ClaudeCode) Uninstall(settings []byte, command string) ([]byte, error) {
+func (ClaudeCode) Uninstall(settings []byte, command string) ([]byte, bool, error) {
 	return removePreToolUseHook(settings, command)
 }
 
@@ -213,26 +214,30 @@ func mergePreToolUseHook(existing []byte, matcher, command string) ([]byte, stri
 	}
 	hooks[keyPreToolUse] = pre
 	settings[keyHooks] = hooks
-	out, err := renderJSON(settings)
+	out, err := agent.CanonicalJSON(settings)
 	return out, note, err
 }
 
 // removePreToolUseHook removes PreToolUse inner hooks running command, pruning
-// entries/keys that become empty. Idempotent.
-func removePreToolUseHook(existing []byte, command string) ([]byte, error) {
+// entries/keys that become empty. Idempotent. removed reports whether a matching
+// hook was actually found and dropped (false ⇒ the document is unchanged, so the
+// caller can skip the rewrite).
+func removePreToolUseHook(existing []byte, command string) ([]byte, bool, error) {
 	settings, err := decodeSettings(existing)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	hooks, ok := settings[keyHooks].(map[string]any)
 	if !ok {
-		return renderJSON(settings)
+		out, err := agent.CanonicalJSON(settings)
+		return out, false, err
 	}
 	pre, ok := hooks[keyPreToolUse].([]any)
 	if !ok {
-		return renderJSON(settings)
+		out, err := agent.CanonicalJSON(settings)
+		return out, false, err
 	}
-	kept := removeCommandEntries(pre, command)
+	kept, removed := removeCommandEntries(pre, command)
 	if len(kept) == 0 {
 		delete(hooks, keyPreToolUse)
 	} else {
@@ -243,13 +248,14 @@ func removePreToolUseHook(existing []byte, command string) ([]byte, error) {
 	} else {
 		settings[keyHooks] = hooks
 	}
-	return renderJSON(settings)
+	out, err := agent.CanonicalJSON(settings)
+	return out, removed, err
 }
 
 // removeCommandEntries drops inner hooks running command from each PreToolUse
-// entry, and drops any entry left with no hooks.
-func removeCommandEntries(pre []any, command string) []any {
-	var kept []any
+// entry, and drops any entry left with no hooks. removed reports whether any of
+// our hooks was actually dropped.
+func removeCommandEntries(pre []any, command string) (kept []any, removed bool) {
 	for _, e := range pre {
 		em, ok := e.(map[string]any)
 		if !ok {
@@ -261,28 +267,32 @@ func removeCommandEntries(pre []any, command string) []any {
 			kept = append(kept, e)
 			continue
 		}
-		keptHooks := filterOutCommand(hs, command)
+		keptHooks, dropped := filterOutCommand(hs, command)
+		if dropped {
+			removed = true
+		}
 		if len(keptHooks) == 0 {
 			continue // entry had only our hook → drop it
 		}
 		em[keyHooks] = keptHooks
 		kept = append(kept, em)
 	}
-	return kept
+	return kept, removed
 }
 
-// filterOutCommand returns the hooks whose command is not command.
-func filterOutCommand(hooks []any, command string) []any {
-	var kept []any
+// filterOutCommand returns the hooks whose command is not command, and whether
+// any hook was dropped.
+func filterOutCommand(hooks []any, command string) (kept []any, removed bool) {
 	for _, h := range hooks {
 		if hm, ok := h.(map[string]any); ok {
 			if c, _ := hm[keyCommand].(string); c == command {
+				removed = true
 				continue
 			}
 		}
 		kept = append(kept, h)
 	}
-	return kept
+	return kept, removed
 }
 
 func decodeSettings(existing []byte) (map[string]any, error) {
@@ -293,14 +303,6 @@ func decodeSettings(existing []byte) (map[string]any, error) {
 		}
 	}
 	return settings, nil
-}
-
-func renderJSON(m map[string]any) ([]byte, error) {
-	out, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(out, '\n'), nil
 }
 
 func childMap(m map[string]any, key string) (map[string]any, error) {

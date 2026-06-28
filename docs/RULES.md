@@ -49,7 +49,7 @@ Tokens are classified into two kinds. **This is the core of the model:**
 | Kind | What it is | How it matches |
 |---|---|---|
 | **Program** | the first token | `argv[0]` exactly **or by basename** (so `/usr/local/go/bin/go` matches `go`) |
-| **Positional** (operand) | a non-option token (subcommand: `test`, `commit`) | **order matters** — must be an ordered prefix of the command's non-option arguments |
+| **Positional** (operand) | a non-option token (subcommand: `test`, `commit`) | **order matters** — must appear in order (an ordered *subsequence*) among the command's non-option arguments |
 | **Option** (flag) | any flag (`-c`, `-x`, `--no-cache`) | **order does not matter** — must appear somewhere in the arguments; never consumes a positional slot |
 
 (These are the standard CLI terms: a positional is a POSIX *operand*; an option
@@ -63,11 +63,17 @@ by where they sit in the list, so `[docker, --debug, build]` and
 ### Why positional vs option
 
 A subcommand's position is meaningful: `go test` and `go help test` are different
-operations, so `test` is matched **positionally** (it must be the first
-non-option argument). An option's position is not meaningful: `sh -e -c …` and
-`sh -c -e …` are the same, so options are matched as an **unordered set**.
-Options are also skipped when locating positionals, so a leading option never
-hides a subcommand: `go --mod=mod test` still matches `[go, test]`.
+operations, so `test` is matched **positionally** (positionals must appear in the
+given order among the non-option arguments). An option's position is not
+meaningful: `sh -e -c …` and `sh -c -e …` are the same, so options are matched as
+an **unordered set**. Options are skipped when locating positionals, and matching
+is an ordered *subsequence* rather than a strict prefix, so a leading option
+never hides a subcommand — including a **value-taking** one whose value lands
+among the operands (the matcher can't know which flags consume a word):
+`go --mod=mod test`, `git -C /repo push`, and `docker --context prod build` all
+still match `[go, test]` / `[git, push]` / `[docker, build]`. The trade-off is
+that a positional can match a non-leading operand of the same spelling, which
+only ever *widens* what a deny rule catches (fail-safe for a guard).
 
 ### Examples
 

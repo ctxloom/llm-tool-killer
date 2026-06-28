@@ -197,6 +197,44 @@ func TestOptionsDoNotConsumePositions(t *testing.T) {
 	}
 }
 
+// A value-taking option puts its VALUE among the operands (the matcher can't
+// know -C/--context/--prefix consume a word). Positionals match as an ordered
+// subsequence, so the real subcommand is still found and the rule still fires —
+// closing an easy evasion of a command-gating tool (e.g. `git -C /repo push`).
+func TestValueOptionBeforeSubcommandDoesNotEvade(t *testing.T) {
+	gitCfg := mustParse(t, "version: 1\nrules:\n  - id: no-force-push\n    match: { command: [git, push, --force] }\n    message: x\n")
+	deny := [][]string{
+		{"git", "-C", "/repo", "push", "--force"}, // separated value-option before push
+		{"git", "-c", "k=v", "push", "--force"},   // -c name=value before push
+		{"git", "push", "-C", "/repo", "--force"}, // value-option after push
+	}
+	for _, argv := range deny {
+		if Evaluate(gitCfg, cmd(ir.ShellBash, argv...)).Allowed {
+			t.Errorf("an interposed value-option must not hide the subcommand: %v", argv)
+		}
+	}
+
+	dockerCfg := mustParse(t, "version: 1\nrules:\n  - id: no-build\n    match: { command: [docker, build] }\n    message: x\n")
+	if Evaluate(dockerCfg, cmd(ir.ShellBash, "docker", "--context", "prod", "build", ".")).Allowed {
+		t.Error("`docker --context prod build` should match [docker, build]")
+	}
+}
+
+// Subsequence still requires ORDER: two positionals must appear in the given
+// order among the operands, so a reversed operand sequence does not match.
+func TestPositionalSubsequenceRespectsOrder(t *testing.T) {
+	cfg := mustParse(t, "version: 1\nrules:\n  - id: r\n    match: { command: [git, stash, push] }\n    message: x\n")
+	if Evaluate(cfg, cmd(ir.ShellBash, "git", "stash", "push")).Allowed {
+		t.Error("`git stash push` should match [git, stash, push]")
+	}
+	if Evaluate(cfg, cmd(ir.ShellBash, "git", "-C", "/r", "stash", "push")).Allowed {
+		t.Error("interposed `-C /r` should not hide the [stash, push] subsequence")
+	}
+	if !Evaluate(cfg, cmd(ir.ShellBash, "git", "push", "stash")).Allowed {
+		t.Error("reversed order (push before stash) must NOT match")
+	}
+}
+
 func TestCmdSlashOptionsArePortable(t *testing.T) {
 	// Under cmd, /c is an option, not a positional path.
 	y := "version: 1\nrules:\n  - id: no-cmd-c\n    match: { command: [cmd.exe, /c] }\n    message: x\n"

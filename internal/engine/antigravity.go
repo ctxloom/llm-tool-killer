@@ -124,7 +124,7 @@ func (Antigravity) Install(settings []byte, command string) ([]byte, string, err
 }
 
 // Uninstall removes any PreToolUse hook running command from the hooks.json
-// bytes.
-func (Antigravity) Uninstall(settings []byte, command string) ([]byte, error) {
+// bytes. removed reports whether a matching hook was actually dropped.
+func (Antigravity) Uninstall(settings []byte, command string) ([]byte, bool, error) {
 	return removePreToolUseHook(settings, command)
 }

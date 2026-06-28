@@ -113,12 +113,30 @@ func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connecto
 	case *syntax.BinaryCmd:
 		return l.lowerBinary(c, st, conn)
 	case *syntax.Block:
-		return l.lowerStmts(c.Stmts)
+		return l.lowerGroup(c.Stmts, st, conn)
 	case *syntax.Subshell:
-		return l.lowerStmts(c.Stmts)
+		return l.lowerGroup(c.Stmts, st, conn)
 	default:
 		return l.lowerCompound(cmd)
 	}
+}
+
+// lowerGroup lowers a `{ … }` block or `( … )` subshell, carrying the enclosing
+// statement's connector / Background / Negated onto the first pipeline of the
+// group so `! (cmd)`, `(cmd) &`, and `{ cmd; } &` don't silently lose that
+// metadata (lowerStmts alone would stamp the first pipeline ConnNone and drop
+// the negation/background of the whole group). Matching is unaffected — Walk
+// ignores these fields — but a future consumer of them sees the truth.
+func (l *lowerer) lowerGroup(stmts []*syntax.Stmt, st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
+	pipelines := l.lowerStmts(stmts)
+	if len(pipelines) > 0 {
+		pipelines[0].Connector = conn
+		if st != nil {
+			pipelines[0].Background = st.Background
+			pipelines[0].Negated = st.Negated
+		}
+	}
+	return pipelines
 }
 
 // lowerBinary handles "|", "&&", "||" (and any other) binary commands.

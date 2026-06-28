@@ -30,6 +30,28 @@ func TestDelayValidation(t *testing.T) {
 	}
 }
 
+// A `mode: confirm` rule with no effective window can never be confirmed — it
+// would silently behave like an inviolate `enable` rule — so Parse rejects it
+// instead of inverting the author's escape hatch into a firm denial.
+func TestConfirmWithoutWindowRejected(t *testing.T) {
+	// no per-rule window and no global default → rejected.
+	if _, err := Parse([]byte("version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n")); err == nil {
+		t.Error("windowless confirm rule should be a validation error")
+	}
+	// a per-rule window makes it valid.
+	if _, err := Parse([]byte("version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    window_seconds: 30\n    message: m\n")); err != nil {
+		t.Errorf("confirm rule with window_seconds should be valid: %v", err)
+	}
+	// a global default window makes it valid too.
+	if _, err := Parse([]byte("version: 1\ndefaults: { repeat_window_seconds: 30 }\nrules:\n  - id: r\n    match: { command: [go, test] }\n    mode: confirm\n    message: m\n")); err != nil {
+		t.Errorf("confirm rule with default window should be valid: %v", err)
+	}
+	// a non-confirm rule with no window is unaffected.
+	if _, err := Parse([]byte("version: 1\nrules:\n  - id: r\n    match: { command: [go, test] }\n    message: m\n")); err != nil {
+		t.Errorf("enable rule needs no window: %v", err)
+	}
+}
+
 // mode controls whether a rule fires: disable → inert, enable/confirm → fires.
 func TestRuleModeMatching(t *testing.T) {
 	mk := func(mode Mode) *Config {

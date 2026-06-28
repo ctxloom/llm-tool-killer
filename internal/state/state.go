@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/shared/iox"
 )
 
 // pending is a single armed override: the repeat is honored only in the band
@@ -107,24 +109,9 @@ func (s *Store) Save(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	// A unique temp name keeps two concurrent Saves from renaming each other's
-	// half-written file.
-	tmp, err := afero.TempFile(s.fs, filepath.Dir(s.path), filepath.Base(s.path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		_ = s.fs.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = s.fs.Remove(tmp.Name())
-		return err
-	}
-	if err := s.fs.Rename(tmp.Name(), s.path); err != nil {
-		_ = s.fs.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	// Atomic write via shared/iox: a unique temp file in the destination dir is
+	// written then renamed, so two concurrent Saves never rename each other's
+	// half-written file and a reader never sees a torn one. (Parent dir created
+	// just above, satisfying WriteFileAtomicFs's precondition.)
+	return iox.WriteFileAtomicFs(s.fs, s.path, b, 0o644)
 }

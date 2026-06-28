@@ -1,6 +1,6 @@
 # GoReleaser config — builds cross-platform static binaries and cuts a GitHub
 # Release when a v* tag is pushed. Run locally with `goreleaser release --clean`
-# (needs GITHUB_TOKEN); CI runs it via .github/workflows/release.yml on tag.
+# (needs GITHUB_TOKEN); CI runs it via .github/workflows/release-completer.yml on tag.
 version: 2
 
 project_name: ltk
