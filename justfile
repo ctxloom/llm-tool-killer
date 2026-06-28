@@ -11,6 +11,12 @@ pkg := "./cmd/ltk"
 version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{CommitDateCompact}}" --prefix 2>/dev/null); then echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'; else echo dev; fi`
 ldflags := "-X main.Version=" + version
 
+# Container runtime (docker or podman) and the devcontainer image tag. lint and
+# mutation run inside the pre-baked devcontainer (golangci-lint v2, gremlins) so
+# the pinned toolchain is used and go.mod stays free of a linter tool tree.
+container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
+devcontainer_image := "ltk-devcontainer"
+
 # List available recipes.
 default:
     @just --list
@@ -67,19 +73,13 @@ fmt:
 vet:
     go vet ./...
 
-# golangci-lint (v2, pinned via go.mod tool directive; config in .golangci.yml).
-# Includes errcheck with the std-error-handling exclusions.
-lint:
-    go tool golangci-lint run
+# golangci-lint (v2; config in .golangci.yml) — runs in the devcontainer.
+lint: dev-image
+    just _run lint
 
-# Cyclomatic complexity gate (gocyclo, pinned via go.mod tool directive).
-# Reports any function whose complexity exceeds 15.
-complexity:
-    go tool gocyclo -over 15 .
-
-# Show the most complex functions (informational; never fails).
-complexity-top:
-    go tool gocyclo -top 15 .
+# Mutation testing (gremlins; config in .gremlins.yaml) — runs in the devcontainer.
+test-mutation *ARGS: dev-image
+    just _run test-mutation {{ARGS}}
 
 # Tidy modules.
 tidy:
@@ -97,8 +97,8 @@ defaults-check:
 hooks:
     lefthook install
 
-# Full pre-commit gate: format check, vet, lint, complexity, defaults sync, tests.
-check: fmt-check vet lint complexity defaults-check test
+# Full pre-commit gate: format check, vet, lint, defaults sync, tests.
+check: fmt-check vet lint defaults-check test
 
 # Build then run the bundled smoke checks against examples/rules.yaml.
 smoke: build
@@ -111,3 +111,35 @@ smoke: build
 # Remove build artifacts.
 clean:
     rm -rf bin
+
+# ===== devcontainer delegation (shared family pattern) =====
+
+# Build the devcontainer image from .devcontainer/Dockerfile.
+dev-image:
+    {{container_cmd}} build -t {{devcontainer_image}}:latest -f .devcontainer/Dockerfile .
+
+# Internal helper: run a justfile.container target inside the devcontainer.
+# Short-circuits to a direct invocation when already in CI/devcontainer.
+_run +ARGS:
+    #!/usr/bin/env bash
+    if [ -n "$DEVCONTAINER" ] || [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+        just -f justfile.container {{ARGS}}
+    else
+        user_flag=(--user "$(id -u):$(id -g)")
+        if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then user_flag=(); fi
+        GOWORK=off go mod download
+        cache_mount=()
+        if [ -d "$HOME/go/pkg/mod" ]; then cache_mount=(-v "$HOME/go/pkg/mod:/tmp/gomodcache:ro"); fi
+        {{container_cmd}} run --rm \
+            "${user_flag[@]}" \
+            "${cache_mount[@]}" \
+            -e HOME=/tmp \
+            -e GOMODCACHE=/tmp/gomodcache \
+            -e GOCACHE=/tmp/.gocache \
+            -e GOWORK=off \
+            -v "$(pwd):/workspace" \
+            -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
+            -w /workspace \
+            {{devcontainer_image}}:latest \
+            just {{ARGS}}
+    fi
