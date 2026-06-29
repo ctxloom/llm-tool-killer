@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/ctxloom/antigravity v0.0.0-20260627223818-14cb30d8c230
-	github.com/ctxloom/claude v0.0.0-20260628151405-f6ba25749828
+	github.com/ctxloom/claude v0.0.0-20260628154800-402500b512fa
 	github.com/ctxloom/shared v0.0.0-20260627164621-cc20d319d5a7
 	github.com/cucumber/godog v0.15.1
 	github.com/spf13/afero v1.15.0
