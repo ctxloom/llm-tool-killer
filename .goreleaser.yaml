@@ -50,7 +50,8 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - README.md
-      - LICENSE
+      - LICENSE-APACHE
+      - LICENSE-BSD
       - docs/**/*
 
 checksum:
@@ -85,7 +86,7 @@ homebrew_casks:
     directory: Casks
     homepage: "https://github.com/ctxloom/llm-tool-killer"
     description: "Pre-tool hook that redirects an LLM agent's shell commands to the project's preferred command"
-    license: "BSD-3-Clause"
+    license: "Apache-2.0 OR BSD-3-Clause"
     # Don't push a cask for prereleases (e.g. v0.0.1-rc.1) or snapshots — only
     # real tags update the tap.
     skip_upload: auto

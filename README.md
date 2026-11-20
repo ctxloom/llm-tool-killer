@@ -337,4 +337,4 @@ via a `go.mod` tool directive. Versions are stamped from
 
 ## License
 
-BSD 3-Clause. See [LICENSE](LICENSE).
+Licensed under either of Apache License 2.0 or BSD 3-Clause, at your option: see [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-BSD](LICENSE-BSD).
